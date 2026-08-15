@@ -1,9 +1,23 @@
-# Social Content Studio v0.2 — GitHub/Vercel Frontend
+# Social Studio v0.3 (GitHub Pages frontend)
 
-This folder is the complete static website to put in a NEW GitHub repository and import into Vercel.
+This package contains the updated static frontend for Social Studio.
 
-## Upload these files to the repository root
+## What's new in v0.3
+- tighter prompt / less invented detail support (paired with Firebase function update)
+- Reel planning mode:
+  - Use only what I uploaded
+  - Suggest additional shots I could take
+- quicker result refinements:
+  - Shorter
+  - More Fun
+  - Less Salesy
+  - Try Another
+- cleaner mobile results layout
+- shorter, more practical photo notes
+- improved copy for authorized-domain sign-in warnings
 
+## Files
+Upload these files to the root of your `Social-content-studio` GitHub repository:
 - `index.html`
 - `styles.css`
 - `app.js`
@@ -11,34 +25,5 @@ This folder is the complete static website to put in a NEW GitHub repository and
 - `.gitignore`
 - `README.md`
 
-Do not upload the `FIREBASE-UPDATE` folder to this frontend repository unless you intentionally want backend source stored there too.
-
-## Vercel
-
-This is a plain HTML/CSS/JavaScript site. No npm build and no Vercel serverless API are required.
-
-1. Import the GitHub repository into Vercel.
-2. Use Framework Preset: **Other**.
-3. Leave Build Command empty.
-4. Leave the project root as the repository root.
-5. Deploy.
-
-No `OPENAI_API_KEY` environment variable belongs in Vercel. The OpenAI key remains in Firebase Secret Manager.
-
-## After the first Vercel deployment
-
-Copy the assigned `*.vercel.app` hostname and add it in:
-
-Firebase Console → `stressed-logit` → Authentication → Settings → Authorized domains
-
-Then open the Vercel site, sign in with Google, upload one or more photos, add a short description, and select **Create Content Package**.
-
-## Backend dependency
-
-The site calls this existing Firebase project:
-
-- Project: `stressed-logit`
-- Region: `us-central1`
-- Callable: `generateSocialPackage`
-
-Deploy the Firebase update in the companion package before testing live generation.
+## Important
+For the new refine buttons to work properly, you should also deploy the matching Firebase function update from the v0.3 Firebase package.

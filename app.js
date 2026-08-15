@@ -12,11 +12,19 @@ const FUNCTION_NAME = 'generateSocialPackage';
 const MAX_IMAGES = 6;
 const MAX_TOTAL_IMAGE_CHARS = 12_000_000;
 
+const REFINE_INSTRUCTIONS = {
+  shorter: 'Make the package tighter and more concise. Shorten the primary caption and story first while keeping the same facts and tone.',
+  more_fun: 'Keep the same facts, but make the wording a little more playful and lively without sounding cheesy or overhyped.',
+  less_salesy: 'Keep the same facts, but make the writing feel more natural, local, and less promotional or pushy.',
+  try_another: 'Create a fresh alternate version of the whole package. Keep the same facts and general tone, but take a slightly different writing angle.'
+};
+
 const state = {
   photos: [],
   result: null,
   user: null,
   authReady: false,
+  isLoading: false,
 };
 
 const els = {
@@ -30,6 +38,8 @@ const els = {
   includeStory: document.getElementById('includeStory'),
   includeVisual: document.getElementById('includeVisual'),
   includeHashtags: document.getElementById('includeHashtags'),
+  reelModeWrap: document.getElementById('reelModeWrap'),
+  reelMode: document.getElementById('reelMode'),
   generateBtn: document.getElementById('generateBtn'),
   generateLabel: document.getElementById('generateLabel'),
   apiStatus: document.getElementById('apiStatus'),
@@ -47,6 +57,7 @@ const els = {
   brandDefaults: document.getElementById('brandDefaults'),
   newBtn: document.getElementById('newBtn'),
   toast: document.getElementById('toast'),
+  refineBtns: [...document.querySelectorAll('.refine-btn')],
 };
 
 const defaultProfile = {
@@ -78,8 +89,12 @@ function showAuthNotice(message) {
 function loadProfile() {
   let profile = defaultProfile;
   try {
-    profile = { ...defaultProfile, ...JSON.parse(localStorage.getItem('socialStudioProfile') || '{}') };
+    profile = {
+      ...defaultProfile,
+      ...JSON.parse(localStorage.getItem('socialStudioProfile') || '{}')
+    };
   } catch {}
+
   els.businessName.value = profile.businessName;
   els.businessLocation.value = profile.businessLocation;
   els.brandVoice.value = profile.brandVoice;
@@ -144,11 +159,15 @@ async function signIn() {
     }
     console.error(error);
     if (error?.code === 'auth/unauthorized-domain') {
-      showAuthNotice('This Vercel domain must be added to Firebase Authentication → Settings → Authorized domains.');
+      showAuthNotice('This site domain must be added in Firebase Authentication → Settings → Authorized domains.');
       return;
     }
     showAuthNotice(error?.message || 'Google sign-in could not be completed.');
   }
+}
+
+function updateReelModeVisibility() {
+  els.reelModeWrap.classList.toggle('hidden', !els.includeReel.checked);
 }
 
 els.authBtn.addEventListener('click', async () => {
@@ -169,25 +188,33 @@ els.saveProfileBtn.addEventListener('click', () => {
 });
 
 els.photoInput.addEventListener('change', (event) => addFiles([...event.target.files]));
-['dragenter', 'dragover'].forEach(type => els.dropZone.addEventListener(type, e => {
-  e.preventDefault();
-  els.dropZone.classList.add('dragging');
-}));
-['dragleave', 'drop'].forEach(type => els.dropZone.addEventListener(type, e => {
-  e.preventDefault();
-  els.dropZone.classList.remove('dragging');
-}));
-els.dropZone.addEventListener('drop', e => addFiles([...e.dataTransfer.files]));
+['dragenter', 'dragover'].forEach((type) => {
+  els.dropZone.addEventListener(type, (e) => {
+    e.preventDefault();
+    els.dropZone.classList.add('dragging');
+  });
+});
+['dragleave', 'drop'].forEach((type) => {
+  els.dropZone.addEventListener(type, (e) => {
+    e.preventDefault();
+    els.dropZone.classList.remove('dragging');
+  });
+});
+els.dropZone.addEventListener('drop', (e) => addFiles([...e.dataTransfer.files]));
+els.includeReel.addEventListener('change', updateReelModeVisibility);
 
 async function addFiles(files) {
-  const accepted = files.filter(f => /^image\/(jpeg|png|webp)$/.test(f.type));
+  const accepted = files.filter((f) => /^image\/(jpeg|png|webp)$/.test(f.type));
   const slots = Math.max(0, MAX_IMAGES - state.photos.length);
-  if (!slots) return showToast(`Maximum of ${MAX_IMAGES} photos`);
+  if (!slots) {
+    showToast(`Maximum of ${MAX_IMAGES} photos`);
+    return;
+  }
 
   for (const file of accepted.slice(0, slots)) {
     try {
       const optimized = await optimizeImage(file);
-      state.photos.push({ name: file.name, dataUrl: optimized });
+      state.photos.push({name: file.name, dataUrl: optimized});
     } catch {
       showToast(`Could not read ${file.name}`);
     }
@@ -205,7 +232,7 @@ function optimizeImage(file) {
       img.onerror = reject;
       img.onload = () => {
         const maxSide = 1200;
-        let { width, height } = img;
+        let {width, height} = img;
         const scale = Math.min(1, maxSide / Math.max(width, height));
         width = Math.max(1, Math.round(width * scale));
         height = Math.max(1, Math.round(height * scale));
@@ -231,22 +258,53 @@ function renderPhotos() {
     </div>
   `).join('');
 
-  els.photoGrid.querySelectorAll('.photo-remove').forEach(btn => btn.addEventListener('click', () => {
-    state.photos.splice(Number(btn.dataset.index), 1);
-    renderPhotos();
-  }));
+  els.photoGrid.querySelectorAll('.photo-remove').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.photos.splice(Number(btn.dataset.index), 1);
+      renderPhotos();
+    });
+  });
 }
 
-function setLoading(isLoading) {
+function setLoading(isLoading, label = 'Create Social Package') {
+  state.isLoading = isLoading;
   els.generateBtn.disabled = isLoading;
-  els.generateLabel.textContent = isLoading ? 'Creating your social package…' : 'Create Social Package';
+  els.refineBtns.forEach((btn) => { btn.disabled = isLoading; });
+  els.generateLabel.textContent = isLoading ? label : 'Create Social Package';
 }
 
-els.generateBtn.addEventListener('click', async () => {
+function buildPayload(action = 'generate', refineInstruction = '') {
+  return {
+    action,
+    description: els.description.value.trim(),
+    contentType: els.contentType.value,
+    tone: els.tone.value,
+    options: {
+      reel: els.includeReel.checked,
+      story: els.includeStory.checked,
+      visual: els.includeVisual.checked,
+      hashtags: els.includeHashtags.checked,
+      reelMode: els.reelMode.value,
+    },
+    profile: getProfile(),
+    images: state.photos.map((p) => p.dataUrl),
+    currentResult: action === 'refine' ? state.result : undefined,
+    refineInstruction: action === 'refine' ? refineInstruction : undefined,
+  };
+}
+
+async function runPackageRequest(action = 'generate', refineInstruction = '') {
   const description = els.description.value.trim();
-  if (!description && !state.photos.length) {
+  const totalChars = state.photos.reduce((sum, p) => sum + p.dataUrl.length, 0);
+
+  if (action === 'generate' && !description && !state.photos.length) {
     showToast('Add a photo or tell me what the post is about');
     els.description.focus();
+    return;
+  }
+
+  if (action === 'refine' && !state.result) {
+    showToast('Create a package first');
     return;
   }
 
@@ -261,28 +319,18 @@ els.generateBtn.addEventListener('click', async () => {
     return;
   }
 
-  const totalChars = state.photos.reduce((sum, p) => sum + p.dataUrl.length, 0);
   if (totalChars > MAX_TOTAL_IMAGE_CHARS) {
     showToast('Those photos are still too large together. Remove one or two and try again.');
     return;
   }
 
-  setLoading(true);
-  try {
-    const response = await generateSocialPackage({
-      description,
-      contentType: els.contentType.value,
-      tone: els.tone.value,
-      options: {
-        reel: els.includeReel.checked,
-        story: els.includeStory.checked,
-        visual: els.includeVisual.checked,
-        hashtags: els.includeHashtags.checked,
-      },
-      profile: getProfile(),
-      images: state.photos.map(p => p.dataUrl),
-    });
+  const loadingLabel = action === 'generate' ?
+    'Creating your social package…' :
+    'Refining your package…';
 
+  setLoading(true, loadingLabel);
+  try {
+    const response = await generateSocialPackage(buildPayload(action, refineInstruction));
     const data = response?.data || {};
     if (!data.result) throw new Error('No social package was returned.');
     state.result = data.result;
@@ -304,6 +352,17 @@ els.generateBtn.addEventListener('click', async () => {
   } finally {
     setLoading(false);
   }
+}
+
+els.generateBtn.addEventListener('click', () => runPackageRequest('generate'));
+
+els.refineBtns.forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const key = btn.dataset.refine;
+    const instruction = REFINE_INSTRUCTIONS[key];
+    if (!instruction) return;
+    runPackageRequest('refine', instruction);
+  });
 });
 
 function safeText(value, fallback = 'Not generated for this package.') {
@@ -325,7 +384,9 @@ function renderResult(result) {
   renderSequence('reelPlanOutput', result.reelPlan, 'SHOT');
   renderSequence('visualNotesOutput', result.visualNotes, 'PHOTO');
   activateTab('caption');
-  if (window.innerWidth < 981) els.resultsState.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (window.innerWidth < 981) {
+    els.resultsState.scrollIntoView({behavior: 'smooth', block: 'start'});
+  }
 }
 
 function renderSequence(id, items, label) {
@@ -342,33 +403,56 @@ function renderSequence(id, items, label) {
 }
 
 function escapeHtml(text) {
-  return String(text).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  return String(text).replace(/[&<>'"]/g, (c) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    "'": '&#39;',
+    '"': '&quot;'
+  }[c]));
 }
 
 function activateTab(name) {
-  document.querySelectorAll('.tab').forEach(tab => tab.classList.toggle('active', tab.dataset.tab === name));
-  document.querySelectorAll('.result-panel').forEach(panel => panel.classList.toggle('hidden', panel.dataset.panel !== name));
+  document.querySelectorAll('.tab').forEach((tab) => {
+    tab.classList.toggle('active', tab.dataset.tab === name);
+  });
+  document.querySelectorAll('.result-panel').forEach((panel) => {
+    panel.classList.toggle('hidden', panel.dataset.panel !== name);
+  });
 }
-document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => activateTab(tab.dataset.tab)));
+
+document.querySelectorAll('.tab').forEach((tab) => {
+  tab.addEventListener('click', () => activateTab(tab.dataset.tab));
+});
 
 const copyMap = {
-  caption: 'caption', alternate: 'alternate', hashtags: 'hashtags', reelHook: 'reelHook',
-  overlayText: 'overlayText', story: 'story', cta: 'cta'
+  caption: 'caption',
+  alternate: 'alternate',
+  hashtags: 'hashtags',
+  reelHook: 'reelHook',
+  overlayText: 'overlayText',
+  story: 'story',
+  cta: 'cta'
 };
-document.querySelectorAll('.copy-btn').forEach(btn => btn.addEventListener('click', async () => {
-  if (!state.result) return;
-  let value = state.result[copyMap[btn.dataset.copy]];
-  if (Array.isArray(value)) value = value.join(' ');
-  await navigator.clipboard.writeText(value || '');
-  showToast('Copied');
-}));
+
+document.querySelectorAll('.copy-btn').forEach((btn) => {
+  btn.addEventListener('click', async () => {
+    if (!state.result) return;
+    let value = state.result[copyMap[btn.dataset.copy]];
+    if (Array.isArray(value)) value = value.join(' ');
+    await navigator.clipboard.writeText(value || '');
+    showToast('Copied');
+  });
+});
 
 els.newBtn.addEventListener('click', () => {
   state.result = null;
   els.resultsState.classList.add('hidden');
   els.emptyState.classList.remove('hidden');
   els.description.focus();
+  window.scrollTo({top: 0, behavior: 'smooth'});
 });
 
 loadProfile();
+updateReelModeVisibility();
 initFirebase();

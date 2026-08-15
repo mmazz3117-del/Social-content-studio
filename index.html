@@ -94,6 +94,17 @@
             <label class="chip"><input id="includeVisual" type="checkbox" checked /> Photo feedback</label>
             <label class="chip"><input id="includeHashtags" type="checkbox" checked /> Hashtags</label>
           </div>
+
+          <div id="reelModeWrap" class="sub-setting-wrap">
+            <label>
+              <span>Reel plan style</span>
+              <select id="reelMode">
+                <option value="uploaded_only">Use only what I uploaded</option>
+                <option value="extra_shots_ok">Suggest additional shots I could take</option>
+              </select>
+            </label>
+            <p class="helper-copy">Choose whether the Reel plan should stick only to the uploaded assets or suggest a few extra shots you could capture.</p>
+          </div>
         </section>
 
         <section class="panel compact-panel">
@@ -129,14 +140,24 @@
               <span class="eyebrow">YOUR SOCIAL PACKAGE</span>
               <h2 id="resultHeadline">Ready to post</h2>
             </div>
-            <button id="newBtn" class="ghost-btn" type="button">New</button>
+            <button id="newBtn" class="ghost-btn" type="button">Start new</button>
+          </div>
+
+          <div class="refine-bar">
+            <span class="refine-label">Quick tweaks</span>
+            <div class="refine-actions">
+              <button class="refine-btn" data-refine="shorter" type="button">Shorter</button>
+              <button class="refine-btn" data-refine="more_fun" type="button">More Fun</button>
+              <button class="refine-btn" data-refine="less_salesy" type="button">Less Salesy</button>
+              <button class="refine-btn" data-refine="try_another" type="button">Try Another</button>
+            </div>
           </div>
 
           <div class="tab-bar" role="tablist">
             <button class="tab active" data-tab="caption" type="button">Caption</button>
             <button class="tab" data-tab="reel" type="button">Reel</button>
             <button class="tab" data-tab="story" type="button">Story</button>
-            <button class="tab" data-tab="visual" type="button">Photo notes</button>
+            <button class="tab" data-tab="visual" type="button">Photo</button>
           </div>
 
           <div class="result-panel" data-panel="caption">
