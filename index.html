@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#18392f" />
+  <title>Social Studio</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-lockup">
+        <div class="brand-mark">OS</div>
+        <div>
+          <div class="eyebrow">CONTENT WORKSPACE</div>
+          <h1>Social Studio</h1>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <span id="apiStatus" class="status-pill demo">Sign in to connect</span>
+        <span id="userName" class="user-name hidden"></span>
+        <button id="authBtn" class="ghost-btn" type="button">Sign in with Google</button>
+        <button id="profileBtn" class="ghost-btn" type="button">Business profile</button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="builder-column">
+        <div class="intro-card">
+          <div>
+            <span class="step-kicker">CREATE</span>
+            <h2>Turn your photos into a complete social post.</h2>
+            <p>Upload photos, describe what is happening, choose a format, and generate captions, Reel structure, Story copy, hashtags, and visual notes.</p>
+          </div>
+        </div>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <span class="step-number">01</span>
+              <h3>Add photos</h3>
+            </div>
+            <span class="helper">Up to 6</span>
+          </div>
+
+          <label id="dropZone" class="drop-zone" for="photoInput">
+            <input id="photoInput" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden />
+            <div class="upload-icon">＋</div>
+            <strong>Add photos</strong>
+            <span>Choose from your phone or computer</span>
+          </label>
+          <div id="photoGrid" class="photo-grid" aria-live="polite"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <span class="step-number">02</span>
+              <h3>Tell us what is happening</h3>
+            </div>
+          </div>
+
+          <textarea id="description" rows="6" placeholder="Example: A new shipment of popcorn just arrived. We are also sampling iced teas today. I want this to feel fun and summery, but not too salesy."></textarea>
+
+          <div class="field-grid">
+            <label>
+              <span>Content type</span>
+              <select id="contentType">
+                <option value="Instagram/Facebook post">Instagram / Facebook Post</option>
+                <option value="Reel">Reel</option>
+                <option value="Story">Story</option>
+                <option value="Product spotlight">Product Spotlight</option>
+                <option value="Event announcement">Event Announcement</option>
+                <option value="Educational post">Educational Post</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Tone</span>
+              <select id="tone">
+                <option value="warm, polished, local, and inviting">Warm & Inviting</option>
+                <option value="fun, energetic, and playful">Fun & Playful</option>
+                <option value="clean, elevated, and elegant">Elegant</option>
+                <option value="helpful, interesting, and educational">Educational</option>
+                <option value="exciting and urgent without sounding pushy">Exciting</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="chip-row" aria-label="generation preferences">
+            <label class="chip"><input id="includeReel" type="checkbox" checked /> Reel plan</label>
+            <label class="chip"><input id="includeStory" type="checkbox" checked /> Story copy</label>
+            <label class="chip"><input id="includeVisual" type="checkbox" checked /> Photo feedback</label>
+            <label class="chip"><input id="includeHashtags" type="checkbox" checked /> Hashtags</label>
+          </div>
+        </section>
+
+        <section class="panel compact-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="step-number">03</span>
+              <h3>Create content</h3>
+            </div>
+          </div>
+          <button id="generateBtn" class="primary-btn" type="button">
+            <span id="generateLabel">Create Social Package</span>
+            <span aria-hidden="true">→</span>
+          </button>
+          <p class="privacy-note">Photos are sent only when you press Create. The OpenAI key stays in Firebase Secret Manager and is never placed in this site.</p>
+        </section>
+      </section>
+
+      <aside class="results-column">
+        <div id="emptyState" class="results-empty">
+          <div class="spark">✦</div>
+          <h2>Your content will appear here.</h2>
+          <p>You’ll get a primary caption plus optional Reel, Story, hashtag, and photo guidance.</p>
+          <div class="sample-card">
+            <span>EXAMPLE OUTPUT</span>
+            <strong>New flavors just landed 🌿</strong>
+            <p>A warm, concise caption written in your preferred brand voice.</p>
+          </div>
+        </div>
+
+        <div id="resultsState" class="results-state hidden">
+          <div class="results-header">
+            <div>
+              <span class="eyebrow">YOUR SOCIAL PACKAGE</span>
+              <h2 id="resultHeadline">Ready to post</h2>
+            </div>
+            <button id="newBtn" class="ghost-btn" type="button">New</button>
+          </div>
+
+          <div class="tab-bar" role="tablist">
+            <button class="tab active" data-tab="caption" type="button">Caption</button>
+            <button class="tab" data-tab="reel" type="button">Reel</button>
+            <button class="tab" data-tab="story" type="button">Story</button>
+            <button class="tab" data-tab="visual" type="button">Photo notes</button>
+          </div>
+
+          <div class="result-panel" data-panel="caption">
+            <div class="result-card">
+              <div class="result-card-head"><h3>Primary caption</h3><button class="copy-btn" data-copy="caption" type="button">Copy</button></div>
+              <div id="captionOutput" class="formatted-output"></div>
+            </div>
+            <div class="result-card">
+              <div class="result-card-head"><h3>Short alternate</h3><button class="copy-btn" data-copy="alternate" type="button">Copy</button></div>
+              <div id="alternateOutput" class="formatted-output"></div>
+            </div>
+            <div class="result-card">
+              <div class="result-card-head"><h3>Hashtags</h3><button class="copy-btn" data-copy="hashtags" type="button">Copy</button></div>
+              <div id="hashtagsOutput" class="formatted-output hashtags"></div>
+            </div>
+          </div>
+
+          <div class="result-panel hidden" data-panel="reel">
+            <div class="result-card">
+              <div class="result-card-head"><h3>Opening hook</h3><button class="copy-btn" data-copy="reelHook" type="button">Copy</button></div>
+              <div id="reelHookOutput" class="formatted-output"></div>
+            </div>
+            <div class="result-card">
+              <div class="result-card-head"><h3>Suggested sequence</h3></div>
+              <div id="reelPlanOutput" class="sequence-list"></div>
+            </div>
+            <div class="result-card">
+              <div class="result-card-head"><h3>On-screen text</h3><button class="copy-btn" data-copy="overlayText" type="button">Copy</button></div>
+              <div id="overlayOutput" class="formatted-output"></div>
+            </div>
+          </div>
+
+          <div class="result-panel hidden" data-panel="story">
+            <div class="result-card">
+              <div class="result-card-head"><h3>Story copy</h3><button class="copy-btn" data-copy="story" type="button">Copy</button></div>
+              <div id="storyOutput" class="formatted-output"></div>
+            </div>
+            <div class="result-card">
+              <div class="result-card-head"><h3>Call to action</h3><button class="copy-btn" data-copy="cta" type="button">Copy</button></div>
+              <div id="ctaOutput" class="formatted-output"></div>
+            </div>
+          </div>
+
+          <div class="result-panel hidden" data-panel="visual">
+            <div class="result-card">
+              <div class="result-card-head"><h3>Best lead image</h3></div>
+              <div id="leadImageOutput" class="formatted-output"></div>
+            </div>
+            <div class="result-card">
+              <div class="result-card-head"><h3>Photo-by-photo notes</h3></div>
+              <div id="visualNotesOutput" class="sequence-list"></div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <div id="authNotice" class="auth-notice hidden" role="status" aria-live="polite"></div>
+
+  <dialog id="profileDialog" class="profile-dialog">
+    <form method="dialog" class="dialog-card" id="profileForm">
+      <div class="dialog-head">
+        <div>
+          <span class="eyebrow">BRAND MEMORY</span>
+          <h2>Business profile</h2>
+        </div>
+        <button class="close-btn" value="cancel" aria-label="Close" type="submit">×</button>
+      </div>
+      <p>These details stay in this browser and are automatically included with each generation.</p>
+      <label><span>Business name</span><input id="businessName" value="Ocean State Spice & Tea Merchants" /></label>
+      <label><span>Location</span><input id="businessLocation" value="Wayland Square, Providence, Rhode Island" /></label>
+      <label><span>Brand voice</span><textarea id="brandVoice" rows="4">Warm, polished, knowledgeable, local, inviting, and never overly salesy. Keep the writing natural rather than generic or overhyped.</textarea></label>
+      <label><span>Default details / hashtags</span><textarea id="brandDefaults" rows="4">Use Ocean State Spice & Tea Merchants by name when useful. Preferred local tags include #OceanStateSpiceAndTea #WaylandSquare #ProvidenceRI #ShopLocalRI. Avoid cluttering posts with too many hashtags.</textarea></label>
+      <div class="dialog-actions">
+        <button id="saveProfileBtn" class="primary-btn" value="default" type="button">Save profile</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-functions-compat.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
