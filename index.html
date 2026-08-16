@@ -14,7 +14,7 @@
         <div class="brand-mark">OS</div>
         <div>
           <div class="eyebrow">CONTENT WORKSPACE</div>
-          <h1>Social Studio</h1>
+          <div class="title-row"><h1>Social Studio</h1><span class="version-tag">v0.5</span></div>
         </div>
       </div>
       <div class="topbar-actions">
@@ -31,7 +31,7 @@
           <div>
             <span class="step-kicker">CREATE</span>
             <h2>Turn your photos into a complete social post.</h2>
-            <p>Upload photos, describe what is happening, choose a format, and generate captions, Reel structure, Story copy, hashtags, and visual notes.</p>
+            <p>Upload photos, describe what is happening, choose a format, and generate captions, Reel structure, Story copy, hashtags, visual notes, adjusted photo returns, and spelled-out text overlays.</p>
           </div>
         </div>
 
@@ -173,6 +173,10 @@
               <div class="result-card-head"><h3>Hashtags</h3><button class="copy-btn" data-copy="hashtags" type="button">Copy</button></div>
               <div id="hashtagsOutput" class="formatted-output hashtags"></div>
             </div>
+            <div class="result-card">
+              <div class="result-card-head"><h3>Post overlay text</h3><button class="copy-btn" data-copy="postOverlayText" type="button">Copy</button></div>
+              <div id="postOverlayOutput" class="formatted-output"></div>
+            </div>
           </div>
 
           <div class="result-panel hidden" data-panel="reel">
@@ -196,6 +200,10 @@
               <div id="storyOutput" class="formatted-output"></div>
             </div>
             <div class="result-card">
+              <div class="result-card-head"><h3>Story overlay text</h3><button class="copy-btn" data-copy="storyOverlayText" type="button">Copy</button></div>
+              <div id="storyOverlayOutput" class="formatted-output"></div>
+            </div>
+            <div class="result-card">
               <div class="result-card-head"><h3>Call to action</h3><button class="copy-btn" data-copy="cta" type="button">Copy</button></div>
               <div id="ctaOutput" class="formatted-output"></div>
             </div>
@@ -209,6 +217,35 @@
             <div class="result-card">
               <div class="result-card-head"><h3>Photo-by-photo notes</h3></div>
               <div id="visualNotesOutput" class="sequence-list"></div>
+            </div>
+            <div class="result-card">
+              <div class="result-card-head"><h3>Photo tools</h3></div>
+              <div class="photo-tools">
+                <label>
+                  <span>Selected photo</span>
+                  <select id="selectedPhoto"></select>
+                </label>
+                <div class="tool-btn-grid">
+                  <button id="basicEditBtn" class="secondary-btn" type="button">Apply Basic Edits</button>
+                  <button id="aiCleanupBtn" class="secondary-btn" type="button">AI Clean Up</button>
+                  <button id="format45Btn" class="secondary-btn" type="button">Make 4:5 Post</button>
+                  <button id="format916Btn" class="secondary-btn" type="button">Make 9:16 Story/Reel</button>
+                </div>
+                <p class="helper-copy">Basic Edits, 4:5, and 9:16 are created locally in the browser. AI Clean Up sends only the selected image to Firebase/OpenAI and returns an improved version.</p>
+              </div>
+            </div>
+            <div id="editedPreviewCard" class="result-card hidden">
+              <div class="result-card-head"><h3 id="editedPreviewTitle">Adjusted photo</h3><button id="downloadEditedBtn" class="copy-btn" type="button">Download</button></div>
+              <div class="preview-grid">
+                <div>
+                  <span class="preview-label">Original</span>
+                  <img id="originalPreview" class="preview-image" alt="Original selected photo" />
+                </div>
+                <div>
+                  <span class="preview-label">Adjusted</span>
+                  <img id="editedPreview" class="preview-image" alt="Adjusted photo result" />
+                </div>
+              </div>
             </div>
           </div>
         </div>
