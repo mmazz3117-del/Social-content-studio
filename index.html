@@ -14,7 +14,7 @@
         <div class="brand-mark">OS</div>
         <div>
           <div class="eyebrow">CONTENT WORKSPACE</div>
-          <div class="title-row"><h1>Social Studio</h1><span class="version-tag">v0.5</span></div>
+          <div class="title-row"><h1>Social Studio</h1><span class="version-tag">v0.8</span></div>
         </div>
       </div>
       <div class="topbar-actions">
@@ -30,10 +30,21 @@
         <div class="intro-card">
           <div>
             <span class="step-kicker">CREATE</span>
-            <h2>Turn your photos into a complete social post.</h2>
-            <p>Upload photos, describe what is happening, choose a format, and generate captions, Reel structure, Story copy, hashtags, visual notes, adjusted photo returns, and spelled-out text overlays.</p>
+            <h2>Turn your photos into a full social package faster.</h2>
+            <p>Upload photos once and generate captions, Reel structure, Story copy, hashtags, photo guidance, overlay text, a ready-made post graphic, and more. One-Tap Create can choose the strongest angle automatically when you do not feel like writing a full prompt.</p>
           </div>
         </div>
+
+        <section id="recentProjectsPanel" class="panel recent-projects-panel hidden">
+          <div class="panel-heading">
+            <div>
+              <span class="step-number">★</span>
+              <h3>Recent projects</h3>
+            </div>
+            <button id="clearProjectsBtn" class="mini-btn" type="button">Clear</button>
+          </div>
+          <div id="recentProjectsList" class="recent-projects-list"></div>
+        </section>
 
         <section class="panel">
           <div class="panel-heading">
@@ -67,6 +78,7 @@
             <label>
               <span>Content type</span>
               <select id="contentType">
+                <option value="Full social package">Full Social Package</option>
                 <option value="Instagram/Facebook post">Instagram / Facebook Post</option>
                 <option value="Reel">Reel</option>
                 <option value="Story">Story</option>
@@ -79,8 +91,8 @@
             <label>
               <span>Tone</span>
               <select id="tone">
-                <option value="warm, polished, local, and inviting">Warm & Inviting</option>
-                <option value="fun, energetic, and playful">Fun & Playful</option>
+                <option value="warm, polished, local, and inviting">Warm &amp; Inviting</option>
+                <option value="fun, energetic, and playful">Fun &amp; Playful</option>
                 <option value="clean, elevated, and elegant">Elegant</option>
                 <option value="helpful, interesting, and educational">Educational</option>
                 <option value="exciting and urgent without sounding pushy">Exciting</option>
@@ -114,10 +126,13 @@
               <h3>Create content</h3>
             </div>
           </div>
-          <button id="generateBtn" class="primary-btn" type="button">
-            <span id="generateLabel">Create Social Package</span>
-            <span aria-hidden="true">→</span>
-          </button>
+          <div class="action-grid">
+            <button id="generateBtn" class="primary-btn" type="button">
+              <span id="generateLabel">Create Social Package</span>
+              <span aria-hidden="true">→</span>
+            </button>
+            <button id="oneTapBtn" class="secondary-btn large-secondary" type="button">One-Tap Create</button>
+          </div>
           <p class="privacy-note">Photos are sent only when you press Create. The OpenAI key stays in Firebase Secret Manager and is never placed in this site.</p>
         </section>
       </section>
@@ -126,7 +141,7 @@
         <div id="emptyState" class="results-empty">
           <div class="spark">✦</div>
           <h2>Your content will appear here.</h2>
-          <p>You’ll get a primary caption plus optional Reel, Story, hashtag, and photo guidance.</p>
+          <p>You’ll get a primary caption plus optional Reel, Story, hashtag, post-graphic, and photo guidance.</p>
           <div class="sample-card">
             <span>EXAMPLE OUTPUT</span>
             <strong>New flavors just landed 🌿</strong>
@@ -185,7 +200,7 @@
               <div id="reelHookOutput" class="formatted-output"></div>
             </div>
             <div class="result-card">
-              <div class="result-card-head"><h3>Suggested sequence</h3></div>
+              <div class="result-card-head"><h3>Step-by-step Reel plan</h3></div>
               <div id="reelPlanOutput" class="sequence-list"></div>
             </div>
             <div class="result-card">
@@ -226,12 +241,13 @@
                   <select id="selectedPhoto"></select>
                 </label>
                 <div class="tool-btn-grid">
-                  <button id="basicEditBtn" class="secondary-btn" type="button">Apply Basic Edits</button>
-                  <button id="aiCleanupBtn" class="secondary-btn" type="button">AI Clean Up</button>
+                  <button id="basicEditBtn" class="secondary-btn" type="button">Auto Enhance</button>
+                  <button id="aiCleanupBtn" class="secondary-btn" type="button">AI Recommended Edit</button>
                   <button id="format45Btn" class="secondary-btn" type="button">Make 4:5 Post</button>
                   <button id="format916Btn" class="secondary-btn" type="button">Make 9:16 Story/Reel</button>
+                  <button id="createPostGraphicBtn" class="secondary-btn" type="button">Create Post Graphic</button>
                 </div>
-                <p class="helper-copy">Basic Edits, 4:5, and 9:16 are created locally in the browser. AI Clean Up sends only the selected image to Firebase/OpenAI and returns an improved version.</p>
+                <p class="helper-copy">Auto Enhance makes a tighter crop and modest color/light improvements locally. AI Recommended Edit uses the photo feedback above to make image-aware changes. Create Post Graphic turns the chosen image into a simple 4:5 post with your suggested overlay already applied.</p>
               </div>
             </div>
             <div id="editedPreviewCard" class="result-card hidden">
@@ -244,6 +260,17 @@
                 <div>
                   <span class="preview-label">Adjusted</span>
                   <img id="editedPreview" class="preview-image" alt="Adjusted photo result" />
+                </div>
+              </div>
+              <div id="editSummary" class="edit-summary"></div>
+              <div class="preview-next-actions">
+                <span class="preview-label">Try another version</span>
+                <div class="tool-btn-grid">
+                  <button id="previewBasicBtn" class="secondary-btn" type="button">Auto Enhance</button>
+                  <button id="previewAiBtn" class="secondary-btn" type="button">AI Recommended Edit</button>
+                  <button id="preview45Btn" class="secondary-btn" type="button">4:5 Post</button>
+                  <button id="preview916Btn" class="secondary-btn" type="button">9:16 Story/Reel</button>
+                  <button id="previewGraphicBtn" class="secondary-btn" type="button">Post Graphic</button>
                 </div>
               </div>
             </div>

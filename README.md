@@ -1,25 +1,28 @@
-# Social Studio v0.5 (GitHub Pages frontend)
+# Social Studio v0.7 — GitHub Pages frontend
 
-This package contains the updated static frontend for Social Studio.
+Frontend-only usability update. No Firebase redeploy is required if v0.5 is already deployed.
 
-## What's new in v0.5
-- visible version tag in the header
-- actual photo-return tools
-- post/story/reel overlay text suggestions spelled out more clearly in the Photo tab
-- Apply Basic Edits (local browser edit)
-- Make 4:5 Post (local crop/export)
-- Make 9:16 Story/Reel (local crop/export)
-- AI Clean Up (calls new Firebase function `editSocialPhoto`)
-- keeps the v0.3 quick tweaks and reel-mode options
+## What's fixed
+- Photo-tool buttons no longer all grey out when one edit is running.
+- Only the active photo tool shows a working/disabled state.
+- Auto Enhance is stronger and more visible than the prior subtle Basic Edit.
+- The result explains what changed.
+- After an adjusted-photo preview, all four photo tools are repeated directly below the preview so you can immediately try another version.
+- `AI Clean Up` is renamed `AI Recommended Edit` to better reflect that it uses the photo-analysis notes.
+- Every photo tool still starts from the original uploaded photo, avoiding compounded edits.
+- Visible version label updated to v0.7.
 
-## Files
-Upload these files to the root of your `Social-content-studio` GitHub repository:
-- `index.html`
-- `styles.css`
-- `app.js`
-- `vercel.json`
-- `.gitignore`
-- `README.md`
+## Upload to GitHub
+Replace the files in the root of the existing Social-content-studio repository with:
+- index.html
+- styles.css
+- app.js
+- README.md
+- vercel.json
+- .gitignore
 
-## Important
-For AI Clean Up to work, you must also deploy the matching Firebase v0.5 update so the `editSocialPhoto` function exists.
+
+## v0.7
+- Reel directions now avoid unexplained filmmaking jargon.
+- Instructions use plain actions such as “slowly zoom out for 3 seconds.”
+- Reel plan heading is clearer on the results screen.
