@@ -854,7 +854,9 @@ async function addFiles(files) {
       }
       syncPrimaryVideoSource();
       clearAuthNotice();
-      if (addedVideoCount) showToast(`${addedVideoCount} video${addedVideoCount === 1 ? '' : 's'} ready for editing`);
+      const zeroFrameVideos = state.videoSources.slice(-addedVideoCount).filter((source) => !source.frameCount).length;
+      if (zeroFrameVideos) showToast(`Video kept — ${zeroFrameVideos} clip${zeroFrameVideos === 1 ? '' : 's'} had limited frame analysis`);
+      else if (addedVideoCount) showToast(`${addedVideoCount} video${addedVideoCount === 1 ? '' : 's'} ready for editing`);
     } catch (error) {
       console.error(error);
       if (mediaSession === state.mediaSession) showAuthNotice('One of the videos could not be sampled. Try a different MP4 or MOV clip.');
@@ -891,38 +893,121 @@ function waitForMediaEvent(target, eventName) {
   });
 }
 
+function waitUntil(predicate, timeoutMs = 12000, intervalMs = 60) {
+  return new Promise((resolve, reject) => {
+    const started = performance.now();
+    const tick = () => {
+      try {
+        if (predicate()) return resolve();
+      } catch {}
+      if (performance.now() - started >= timeoutMs) return reject(new Error('Timed out waiting for video decode.'));
+      setTimeout(tick, intervalMs);
+    };
+    tick();
+  });
+}
+
+async function ensureVideoFrameDecoded(video) {
+  if (typeof video.requestVideoFrameCallback === 'function') {
+    await Promise.race([
+      new Promise((resolve) => video.requestVideoFrameCallback(() => resolve())),
+      new Promise((resolve) => setTimeout(resolve, 1200)),
+    ]);
+    return;
+  }
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+}
+
+async function seekVideoRobust(video, target) {
+  const duration = Number(video.duration || 0);
+  const safeTarget = Math.max(0, Math.min(Number(target || 0), Math.max(0, duration - 0.04)));
+  if (Math.abs(Number(video.currentTime || 0) - safeTarget) > 0.03) {
+    try { video.currentTime = safeTarget; } catch {}
+  }
+  try {
+    await waitUntil(() => video.readyState >= 2 && Math.abs(Number(video.currentTime || 0) - safeTarget) < 0.45, 9000, 50);
+  } catch {
+    // iOS occasionally stalls on a blob seek until the video decoder is briefly started.
+    try {
+      video.muted = true;
+      await video.play();
+      await new Promise((resolve) => setTimeout(resolve, 140));
+      video.pause();
+      video.currentTime = safeTarget;
+      await waitUntil(() => video.readyState >= 2 && Math.abs(Number(video.currentTime || 0) - safeTarget) < 0.55, 7000, 60);
+    } catch (error) {
+      throw error;
+    }
+  }
+  await ensureVideoFrameDecoded(video);
+}
+
+function captureVideoCanvasFrame(video, maxSide = 1400) {
+  const sourceWidth = Number(video.videoWidth || 0);
+  const sourceHeight = Number(video.videoHeight || 0);
+  if (!sourceWidth || !sourceHeight) throw new Error('Video dimensions are not available yet.');
+  const scale = Math.min(1, maxSide / Math.max(sourceWidth, sourceHeight));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+  canvas.height = Math.max(1, Math.round(sourceHeight * scale));
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/jpeg', .84);
+}
+
 async function extractVideoFrames(file, frameCount = VIDEO_FRAME_COUNT) {
   const video = document.createElement('video');
   video.muted = true;
   video.playsInline = true;
+  video.setAttribute('playsinline', '');
+  video.setAttribute('webkit-playsinline', '');
   video.preload = 'auto';
+  video.style.position = 'fixed';
+  video.style.left = '-9999px';
+  video.style.top = '0';
+  video.style.width = '2px';
+  video.style.height = '2px';
+  video.style.opacity = '0.01';
+  video.style.pointerEvents = 'none';
   const objectUrl = URL.createObjectURL(file);
   video.src = objectUrl;
+  document.body.appendChild(video);
   try {
+    try { video.load(); } catch {}
     if (video.readyState < 1) await waitForMediaEvent(video, 'loadedmetadata');
-    if (video.readyState < 2) await waitForMediaEvent(video, 'loadeddata');
     const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 1;
     const safeCount = Math.max(1, Math.min(VIDEO_FRAME_COUNT, Number(frameCount) || 1));
-    const positions = safeCount === 1 ? [0.5] : Array.from({length: safeCount}, (_, i) => 0.12 + ((0.76 * i) / (safeCount - 1)));
+    const positions = safeCount === 1
+      ? [0.38]
+      : Array.from({length: safeCount}, (_, i) => 0.12 + ((0.76 * i) / (safeCount - 1)));
     const frames = [];
+
     for (const ratio of positions) {
       const target = Math.min(Math.max(0, duration * ratio), Math.max(0, duration - 0.05));
-      if (Math.abs(video.currentTime - target) > 0.02) {
-        video.currentTime = target;
-        await waitForMediaEvent(video, 'seeked');
+      try {
+        await seekVideoRobust(video, target);
+        frames.push({time: target, dataUrl: captureVideoCanvasFrame(video)});
+      } catch (error) {
+        console.info(`Could not sample video at ${target.toFixed(2)}s`, error);
       }
-      const maxSide = 1400;
-      const sourceWidth = video.videoWidth || 1280;
-      const sourceHeight = video.videoHeight || 720;
-      const scale = Math.min(1, maxSide / Math.max(sourceWidth, sourceHeight));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(sourceWidth * scale));
-      canvas.height = Math.max(1, Math.round(sourceHeight * scale));
-      canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-      frames.push({time: target, dataUrl: canvas.toDataURL('image/jpeg', .84)});
+    }
+
+    // If normal seeking was troublesome, make one last attempt near the beginning.
+    if (!frames.length) {
+      const target = Math.min(Math.max(0.03, duration * 0.08), Math.max(0, duration - 0.05));
+      try {
+        await seekVideoRobust(video, target);
+        frames.push({time: target, dataUrl: captureVideoCanvasFrame(video)});
+      } catch (error) {
+        console.info('Fallback video frame capture failed', error);
+      }
     }
     return {duration, frames};
   } finally {
+    try { video.pause(); } catch {}
+    video.removeAttribute('src');
+    try { video.load(); } catch {}
+    video.remove();
     URL.revokeObjectURL(objectUrl);
   }
 }
@@ -1370,7 +1455,7 @@ async function runPackageRequest(action = 'generate', refineInstruction = '', ex
   }
   const totalChars = state.photos.reduce((sum, photo) => sum + photo.dataUrl.length, 0);
 
-  if (action === 'generate' && !description && !state.photos.length) {
+  if (action === 'generate' && !description && !state.photos.length && !allVideoSources().length) {
     showToast('Add a photo/video or tell me what the post is about');
     activateView('create');
     return;
@@ -1437,7 +1522,7 @@ const REFINE_LABELS = {shorter: 'Shorter', more_fun: 'More Fun', less_salesy: 'L
 els.generateBtn.addEventListener('click', () => runPackageRequest('generate'));
 els.oneTapBtn.addEventListener('click', () => {
   setOneTapDefaults();
-  if (!els.description.value.trim() && state.photos.length) showToast('One-Tap will choose the strongest angle.');
+  if (!els.description.value.trim() && (state.photos.length || allVideoSources().length)) showToast('One-Tap will choose the strongest angle.');
   runPackageRequest('generate', '', {oneTap: true});
 });
 els.refineBtns.forEach((btn) => btn.addEventListener('click', async () => {
@@ -1679,7 +1764,7 @@ els.selectedPhoto.addEventListener('change', () => {
 });
 
 function renderToolsState() {
-  const hasMedia = state.photos.length > 0;
+  const hasMedia = state.photos.length > 0 || allVideoSources().length > 0;
   els.toolsEmpty.classList.toggle('hidden', hasMedia);
   els.toolsState.classList.toggle('hidden', !hasMedia);
   els.analysisTools.classList.toggle('hidden', !state.result);
@@ -2169,6 +2254,14 @@ function parseReelMediaIndex(item, fallbackIndex) {
   const text = typeof item === 'string' ? item : `${item?.title || ''} ${item?.detail || item?.note || ''}`;
   let match = text.match(/image\s*(\d+)/i) || text.match(/photo\s*(\d+)/i);
   if (match) return Math.max(0, Math.min(state.photos.length - 1, Number(match[1]) - 1));
+  const videoMatch = text.match(/video\s*(\d+)/i);
+  if (videoMatch) {
+    const source = allVideoSources()[Math.max(0, Number(videoMatch[1]) - 1)];
+    if (source) {
+      const frames = state.photos.map((photo, index) => photo.sourceType === 'videoFrame' && (!photo.videoId || photo.videoId === source.id) ? index : -1).filter((index) => index >= 0);
+      if (frames.length) return frames[Math.floor(frames.length / 2)];
+    }
+  }
   match = text.match(/(?:video\s*)?frame\s*(\d+)/i);
   if (match) {
     const frames = state.photos.map((photo, index) => photo.sourceType === 'videoFrame' ? index : -1).filter((index) => index >= 0);
@@ -2240,13 +2333,13 @@ function fallbackVideoSlides(maxSlides = 3) {
     const first = primaryVideoSource();
     const segment = continuousVideoSegment(first);
     const frame = state.photos.find((photo) => photo.sourceType === 'videoFrame');
-    if (first && segment && frame) {
+    if (first && segment) {
       slides.push({
-        dataUrl: frame.dataUrl,
+        dataUrl: frame?.dataUrl || '',
         overlay: String(state.result?.reelHook || state.result?.overlayText || ''),
         title: 'Video highlight',
         duration: segment.duration,
-        sourceIndex: state.photos.indexOf(frame),
+        sourceIndex: frame ? state.photos.indexOf(frame) : -1,
         sourceType: 'video',
         sourceVideoId: first.id,
         videoStart: segment.start,
@@ -2259,7 +2352,7 @@ function fallbackVideoSlides(maxSlides = 3) {
 }
 
 function buildReelSlides() {
-  if (!state.photos.length) return [];
+  if (!state.photos.length && !allVideoSources().length) return [];
   const intent = editingIntentFromDescription();
   const maxSlides = intent.maxSlides;
   const plan = Array.isArray(state.result?.reelPlan) ? state.result.reelPlan : [];
@@ -2274,13 +2367,13 @@ function buildReelSlides() {
     const source = sources[0];
     const segment = continuousVideoSegment(source);
     const frame = state.photos.find((photo) => photo.sourceType === 'videoFrame' && (!photo.videoId || photo.videoId === source.id));
-    if (segment && frame) {
+    if (segment) {
       return [{
-        dataUrl: frame.dataUrl,
+        dataUrl: frame?.dataUrl || '',
         overlay: String(state.result?.reelHook || state.result?.overlayText || ''),
         title: 'Full video',
         duration: segment.duration,
-        sourceIndex: state.photos.indexOf(frame),
+        sourceIndex: frame ? state.photos.indexOf(frame) : -1,
         sourceType: 'video',
         sourceVideoId: source.id,
         videoStart: segment.start,
@@ -2725,8 +2818,36 @@ els.approveBtns?.forEach((button) => button.addEventListener('click', () => {
   showToast(state.approvedAssets[key] ? `${key === 'feed' ? 'Post' : key === 'story' ? 'Story' : 'Reel'} approved` : 'Approval removed');
 }));
 
+async function ensureWorkerStillFromVideo() {
+  if (state.photos.length) return state.photos[0];
+  const source = primaryVideoSource();
+  if (!source?.objectUrl) return null;
+  const video = document.createElement('video');
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = 'auto';
+  video.src = source.objectUrl;
+  try {
+    if (video.readyState < 1) await waitForMediaEvent(video, 'loadedmetadata');
+    await seekVideoRobust(video, Math.min(Math.max(0.05, Number(source.duration || 1) * 0.3), Math.max(0, Number(source.duration || 1) - 0.05)));
+    const dataUrl = captureVideoCanvasFrame(video);
+    const photo = {name: `${source.name || 'video'} — fallback frame`, dataUrl, sourceType: 'videoFrame', videoName: source.name || '', videoTime: Number(video.currentTime || 0), videoId: source.id};
+    state.photos.push(photo);
+    renderPhotos();
+    refreshSelectedPhotoOptions();
+    return photo;
+  } catch (error) {
+    console.info('Could not create fallback still from video', error);
+    return null;
+  } finally {
+    try { video.pause(); } catch {}
+    video.removeAttribute('src');
+    video.load?.();
+  }
+}
+
 async function renderWorkerAssets() {
-  if (!state.result || !state.photos.length || !els.workerAssets) {
+  if (!state.result || (!state.photos.length && !allVideoSources().length) || !els.workerAssets) {
     els.workerAssets?.classList.add('hidden');
     return;
   }
@@ -2739,6 +2860,8 @@ async function renderWorkerAssets() {
   els.downloadPackageBtn.disabled = true;
   els.downloadReelBtn.disabled = true;
   try {
+    if (!state.photos.length && allVideoSources().length) await ensureWorkerStillFromVideo();
+    if (!state.photos.length) throw new Error('No still frame could be prepared from the video.');
     const leadIndex = leadPhotoIndex();
     const storyIndex = chooseStoryPhotoIndex(leadIndex);
     const leadPhoto = state.photos[leadIndex] || state.photos[0];
