@@ -14,7 +14,7 @@ const MAX_IMAGES = 6;
 const MAX_VIDEOS = 1;
 const VIDEO_FRAME_COUNT = 3;
 const MAX_TOTAL_IMAGE_CHARS = 12_000_000;
-const PROJECTS_STORAGE_KEY = 'socialStudioRecentProjectsV11';
+const PROJECTS_STORAGE_KEY = 'socialStudioRecentProjectsV12';
 const MAX_RECENT_PROJECTS = 8;
 
 const REFINE_INSTRUCTIONS = {
@@ -38,6 +38,12 @@ const state = {
   recentProjects: [],
   videoSource: null,
   activeView: 'create',
+  readyAssets: {feed: '', story: '', reelSlides: [], reelBlob: null, reelMime: ''},
+  reelPreviewTimer: null,
+  reelPreviewIndex: 0,
+  assetStyleIndex: 0,
+  activeAssetTab: 'feed',
+  approvedAssets: {feed: false, story: false, reel: false},
 };
 
 const els = {
@@ -73,6 +79,25 @@ const els = {
   newBtn: document.getElementById('newBtn'),
   toast: document.getElementById('toast'),
   refineBtns: [...document.querySelectorAll('.refine-btn')],
+  workerAssets: document.getElementById('workerAssets'),
+  feedAssetPreview: document.getElementById('feedAssetPreview'),
+  storyAssetPreview: document.getElementById('storyAssetPreview'),
+  downloadFeedBtn: document.getElementById('downloadFeedBtn'),
+  downloadStoryBtn: document.getElementById('downloadStoryBtn'),
+  downloadPackageBtn: document.getElementById('downloadPackageBtn'),
+  reelPreview: document.getElementById('reelPreview'),
+  reelPreviewImage: document.getElementById('reelPreviewImage'),
+  reelPreviewHook: document.getElementById('reelPreviewHook'),
+  reelPreviewOverlay: document.getElementById('reelPreviewOverlay'),
+  reelProgress: document.getElementById('reelProgress'),
+  playReelBtn: document.getElementById('playReelBtn'),
+  downloadReelBtn: document.getElementById('downloadReelBtn'),
+  reelReadyBadge: document.getElementById('reelReadyBadge'),
+  assetStatus: document.getElementById('assetStatus'),
+  assetTabs: [...document.querySelectorAll('.asset-tab')],
+  assetPanels: [...document.querySelectorAll('.asset-panel')],
+  approveBtns: [...document.querySelectorAll('.approve-btn')],
+  copyFullPostBtn: document.getElementById('copyFullPostBtn'),
   selectedPhoto: document.getElementById('selectedPhoto'),
   basicEditBtn: document.getElementById('basicEditBtn'),
   aiCleanupBtn: document.getElementById('aiCleanupBtn'),
@@ -102,6 +127,15 @@ const els = {
   goCreateFromTools: document.getElementById('goCreateFromTools'),
   bottomNavBtns: [...document.querySelectorAll('.bottom-nav-btn')],
   appViews: [...document.querySelectorAll('.app-view')],
+  takePhotosBtn: document.getElementById('takePhotosBtn'),
+  photoCameraDialog: document.getElementById('photoCameraDialog'),
+  photoCameraPreview: document.getElementById('photoCameraPreview'),
+  photoCameraStatus: document.getElementById('photoCameraStatus'),
+  closePhotoCameraBtn: document.getElementById('closePhotoCameraBtn'),
+  photoShutterBtn: document.getElementById('photoShutterBtn'),
+  useCapturedPhotosBtn: document.getElementById('useCapturedPhotosBtn'),
+  photoCaptureCount: document.getElementById('photoCaptureCount'),
+  photoCaptureStrip: document.getElementById('photoCaptureStrip'),
   recordVideoBtn: document.getElementById('recordVideoBtn'),
   cameraDialog: document.getElementById('cameraDialog'),
   cameraPreview: document.getElementById('cameraPreview'),
@@ -123,6 +157,8 @@ let functions;
 let googleProvider;
 let generateSocialPackage;
 let editSocialPhoto;
+let photoCameraStream = null;
+let capturedPhotos = [];
 let cameraStream = null;
 let mediaRecorder = null;
 let recordedChunks = [];
@@ -447,6 +483,145 @@ function renderPhotos() {
   });
 }
 
+
+// In-app multi-shot photo capture (beta). Choosing photos from the iPhone library remains the highest-quality path.
+function remainingMediaSlots() {
+  return Math.max(0, MAX_IMAGES - state.photos.length);
+}
+
+function renderCapturedPhotoStrip() {
+  if (!els.photoCaptureStrip) return;
+  els.photoCaptureStrip.innerHTML = capturedPhotos.map((dataUrl, index) => `
+    <div class="captured-thumb">
+      <img src="${dataUrl}" alt="Captured photo ${index + 1}" />
+      <button type="button" data-captured-index="${index}" aria-label="Remove captured photo ${index + 1}">×</button>
+    </div>
+  `).join('');
+  els.photoCaptureStrip.querySelectorAll('[data-captured-index]').forEach((button) => {
+    button.addEventListener('click', () => {
+      capturedPhotos.splice(Number(button.dataset.capturedIndex), 1);
+      renderCapturedPhotoStrip();
+    });
+  });
+  const total = capturedPhotos.length;
+  els.photoCaptureCount.textContent = `${total} photo${total === 1 ? '' : 's'}`;
+  els.useCapturedPhotosBtn.disabled = !total;
+  els.photoShutterBtn.disabled = total >= remainingMediaSlots() || remainingMediaSlots() <= 0;
+  if (total >= remainingMediaSlots() && remainingMediaSlots() > 0) {
+    els.photoCameraStatus.textContent = 'You filled the remaining media slots';
+  }
+}
+
+function stopPhotoCameraTracks() {
+  if (photoCameraStream) photoCameraStream.getTracks().forEach((track) => track.stop());
+  photoCameraStream = null;
+  if (els.photoCameraPreview) els.photoCameraPreview.srcObject = null;
+}
+
+async function applyBestRearCameraConstraints(stream) {
+  const track = stream?.getVideoTracks?.()[0];
+  if (!track) return;
+  try {
+    const capabilities = track.getCapabilities?.() || {};
+    const advanced = {};
+    if (capabilities.zoom && Number.isFinite(capabilities.zoom.min)) advanced.zoom = capabilities.zoom.min;
+    if (capabilities.focusMode?.includes?.('continuous')) advanced.focusMode = 'continuous';
+    if (capabilities.exposureMode?.includes?.('continuous')) advanced.exposureMode = 'continuous';
+    if (Object.keys(advanced).length) await track.applyConstraints({advanced: [advanced]});
+  } catch (error) {
+    console.info('Optional camera constraints were not available', error);
+  }
+}
+
+async function openPhotoCamera() {
+  const slots = remainingMediaSlots();
+  if (!slots) {
+    showToast(`Maximum of ${MAX_IMAGES} images/video frames`);
+    return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    showAuthNotice('In-app photo capture is not supported here. Use Choose Photos instead.');
+    return;
+  }
+  capturedPhotos = [];
+  renderCapturedPhotoStrip();
+  els.photoCameraStatus.textContent = 'Opening rear camera…';
+  els.photoCameraDialog.showModal();
+  try {
+    photoCameraStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: {ideal: 'environment'},
+        width: {ideal: 1920},
+        height: {ideal: 1440},
+        frameRate: {ideal: 30, max: 30},
+      },
+      audio: false,
+    });
+    els.photoCameraPreview.srcObject = photoCameraStream;
+    await els.photoCameraPreview.play().catch(() => {});
+    await applyBestRearCameraConstraints(photoCameraStream);
+    els.photoCameraStatus.textContent = `Ready • ${slots} photo${slots === 1 ? '' : 's'} available`;
+  } catch (error) {
+    console.error(error);
+    els.photoCameraStatus.textContent = 'Could not open the camera';
+    showAuthNotice('Camera access was unavailable. Take photos in the iPhone Camera app and use Choose Photos instead.');
+  }
+}
+
+function capturePhotoFromPreview() {
+  if (!photoCameraStream || !els.photoCameraPreview?.videoWidth) {
+    showToast('Camera is still getting ready');
+    return;
+  }
+  if (capturedPhotos.length >= remainingMediaSlots()) {
+    showToast('No more media slots in this project');
+    return;
+  }
+  const video = els.photoCameraPreview;
+  const maxSide = 1400;
+  const scale = Math.min(1, maxSide / Math.max(video.videoWidth, video.videoHeight));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+  canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  capturedPhotos.push(canvas.toDataURL('image/jpeg', .88));
+  els.photoCameraStatus.textContent = 'Captured • move to your next angle';
+  renderCapturedPhotoStrip();
+}
+
+function closePhotoCamera({usePhotos = false} = {}) {
+  if (usePhotos && capturedPhotos.length) {
+    capturedPhotos.slice(0, remainingMediaSlots()).forEach((dataUrl, index) => {
+      state.photos.push({
+        name: `Camera photo ${Date.now()}-${index + 1}.jpg`,
+        dataUrl,
+        sourceType: 'photo',
+      });
+    });
+    renderPhotos();
+    refreshSelectedPhotoOptions();
+    renderToolsState();
+    showToast(`${capturedPhotos.length} photo${capturedPhotos.length === 1 ? '' : 's'} added`);
+  }
+  capturedPhotos = [];
+  renderCapturedPhotoStrip();
+  stopPhotoCameraTracks();
+  if (els.photoCameraDialog.open) els.photoCameraDialog.close();
+}
+
+els.takePhotosBtn?.addEventListener('click', openPhotoCamera);
+els.closePhotoCameraBtn?.addEventListener('click', () => closePhotoCamera({usePhotos: false}));
+els.photoShutterBtn?.addEventListener('click', capturePhotoFromPreview);
+els.useCapturedPhotosBtn?.addEventListener('click', () => closePhotoCamera({usePhotos: true}));
+els.photoCameraDialog?.addEventListener('cancel', (event) => {
+  event.preventDefault();
+  closePhotoCamera({usePhotos: false});
+});
+els.photoCameraDialog?.addEventListener('close', () => {
+  if (photoCameraStream) stopPhotoCameraTracks();
+});
+
 // In-app video recorder (beta). Choosing an existing video remains the recommended path.
 async function openCameraRecorder() {
   if (state.videoSource) {
@@ -582,8 +757,19 @@ function setPackageLoading(isLoading, label = '✨ Create Social Package') {
   state.isLoading = isLoading;
   els.generateBtn.disabled = isLoading;
   els.oneTapBtn.disabled = isLoading;
-  els.refineBtns.forEach((btn) => { btn.disabled = isLoading; });
+  els.refineBtns.forEach((btn) => {
+    btn.disabled = isLoading || !state.result;
+    btn.classList.toggle('is-busy', isLoading);
+  });
   els.generateLabel.textContent = isLoading ? label : '✨ Create Social Package';
+  if (!isLoading) refreshRefineButtons();
+}
+
+function refreshRefineButtons() {
+  els.refineBtns.forEach((btn) => {
+    btn.disabled = state.isLoading || !state.result;
+    btn.classList.toggle('ready', Boolean(state.result) && !state.isLoading);
+  });
 }
 
 function setActivePhotoButton(button, isLoading, loadingText = 'Working…') {
@@ -688,9 +874,18 @@ els.oneTapBtn.addEventListener('click', () => {
   if (!els.description.value.trim() && state.photos.length) showToast('One-Tap will choose the strongest angle.');
   runPackageRequest('generate', '', {oneTap: true});
 });
-els.refineBtns.forEach((btn) => btn.addEventListener('click', () => {
+els.refineBtns.forEach((btn) => btn.addEventListener('click', async () => {
   const instruction = REFINE_INSTRUCTIONS[btn.dataset.refine];
-  if (instruction) runPackageRequest('refine', instruction);
+  if (!instruction || btn.disabled) return;
+  if (btn.dataset.refine === 'try_another') state.assetStyleIndex = (state.assetStyleIndex + 1) % 3;
+  const original = btn.textContent;
+  btn.textContent = 'Working…';
+  try {
+    await runPackageRequest('refine', instruction);
+  } finally {
+    btn.textContent = original;
+    refreshRefineButtons();
+  }
 }));
 
 function safeText(value, fallback = 'Not generated for this package.') {
@@ -698,6 +893,8 @@ function safeText(value, fallback = 'Not generated for this package.') {
 }
 
 function renderResult(result) {
+  state.approvedAssets = {feed: false, story: false, reel: false};
+  activateAssetTab('feed');
   els.emptyState.classList.add('hidden');
   els.resultsState.classList.remove('hidden');
   document.getElementById('resultHeadline').textContent = result.headline || 'Ready to post';
@@ -715,8 +912,10 @@ function renderResult(result) {
   renderSequence('visualNotesOutput', result.visualNotes, 'PHOTO');
   refreshSelectedPhotoOptions();
   renderToolsState();
+  refreshRefineButtons();
   activateTab('caption');
   activateView('results');
+  queueMicrotask(() => renderWorkerAssets());
 }
 
 function renderSequence(id, items, label) {
@@ -790,6 +989,11 @@ function resetForNewProject() {
   state.result = null;
   state.videoSource = null;
   state.selectedPhotoIndex = 0;
+  state.readyAssets = {feed: '', story: '', reelSlides: [], reelBlob: null, reelMime: ''};
+  state.approvedAssets = {feed: false, story: false, reel: false};
+  activateAssetTab('feed');
+  stopReelPreview();
+  els.workerAssets?.classList.add('hidden');
   els.description.value = '';
   clearEditedPreview();
   renderPhotos();
@@ -984,10 +1188,23 @@ async function createPostGraphic(dataUrl) {
     sy = Math.max(0, (img.height - sh) * 0.35);
   }
   ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-  const gradient = ctx.createLinearGradient(0, canvas.height * 0.40, 0, canvas.height);
-  gradient.addColorStop(0, 'rgba(0,0,0,0)');
-  gradient.addColorStop(0.55, 'rgba(0,0,0,0.24)');
-  gradient.addColorStop(1, 'rgba(0,0,0,0.76)');
+  const style = state.assetStyleIndex % 3;
+  const gradient = style === 1
+    ? ctx.createLinearGradient(0, 0, canvas.width, canvas.height)
+    : ctx.createLinearGradient(0, canvas.height * 0.36, 0, canvas.height);
+  if (style === 1) {
+    gradient.addColorStop(0, 'rgba(0,0,0,.08)');
+    gradient.addColorStop(.55, 'rgba(0,0,0,.04)');
+    gradient.addColorStop(1, 'rgba(0,0,0,.58)');
+  } else if (style === 2) {
+    gradient.addColorStop(0, 'rgba(0,0,0,0)');
+    gradient.addColorStop(.48, 'rgba(0,0,0,.12)');
+    gradient.addColorStop(1, 'rgba(8,32,25,.82)');
+  } else {
+    gradient.addColorStop(0, 'rgba(0,0,0,0)');
+    gradient.addColorStop(0.55, 'rgba(0,0,0,0.24)');
+    gradient.addColorStop(1, 'rgba(0,0,0,0.76)');
+  }
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -1024,8 +1241,12 @@ async function createPostGraphic(dataUrl) {
   const textBlockHeight = lines.length * lineHeight;
   const gapToFooter = 34;
   const textBottom = canvas.height - footerBottom - footerHeight - gapToFooter;
-  const y = Math.max(canvas.height * 0.54, textBottom - textBlockHeight);
+  const y = style === 1 ? Math.max(canvas.height * 0.50, textBottom - textBlockHeight) : Math.max(canvas.height * 0.54, textBottom - textBlockHeight);
 
+  if (style === 2) {
+    ctx.fillStyle = 'rgba(19,82,67,.78)';
+    ctx.fillRect(left - 24, y - 20, Math.min(maxWidth + 48, canvas.width - left + 24), textBlockHeight + 38);
+  }
   ctx.fillStyle = 'rgba(255,255,255,0.96)';
   ctx.font = `800 ${fontSize}px Inter, Arial, sans-serif`;
   ctx.textBaseline = 'top';
@@ -1036,6 +1257,443 @@ async function createPostGraphic(dataUrl) {
   footerLines.forEach((line, index) => ctx.fillText(line, left, footerY + index * footerLineHeight));
   return canvas.toDataURL('image/jpeg', 0.95);
 }
+
+function photoNoteText(index) {
+  const notes = state.result?.visualNotes;
+  if (!Array.isArray(notes) || !notes[index]) return '';
+  return notes[index]?.detail || notes[index]?.note || '';
+}
+
+function downloadDataUrl(dataUrl, filename) {
+  if (!dataUrl) return;
+  const anchor = document.createElement('a');
+  anchor.href = dataUrl;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
+async function dataUrlToBlob(dataUrl) {
+  return fetch(dataUrl).then((response) => response.blob());
+}
+
+function drawCoverImage(ctx, img, width, height, zoom = 1, focusY = 0.42) {
+  const targetAspect = width / height;
+  const sourceAspect = img.width / img.height;
+  let sx = 0, sy = 0, sw = img.width, sh = img.height;
+  if (sourceAspect > targetAspect) {
+    sw = img.height * targetAspect;
+    sx = (img.width - sw) / 2;
+  } else {
+    sh = img.width / targetAspect;
+    sy = Math.max(0, Math.min(img.height - sh, (img.height - sh) * focusY));
+  }
+  const z = Math.max(1, zoom);
+  const zw = sw / z;
+  const zh = sh / z;
+  sx += (sw - zw) / 2;
+  sy += (sh - zh) / 2;
+  ctx.drawImage(img, sx, sy, zw, zh, 0, 0, width, height);
+}
+
+function drawTextBlock(ctx, text, x, y, maxWidth, maxLines, fontSize, lineHeight, color = '#fff', weight = 800) {
+  let size = fontSize;
+  let lines = [];
+  do {
+    ctx.font = `${weight} ${size}px Inter, Arial, sans-serif`;
+    lines = wrapText(ctx, text, maxWidth);
+    if (lines.length <= maxLines) break;
+    size -= 3;
+  } while (size > 30);
+  lines = lines.slice(0, maxLines);
+  ctx.fillStyle = color;
+  ctx.textBaseline = 'top';
+  const lh = Math.round(size * lineHeight);
+  lines.forEach((line, index) => ctx.fillText(line, x, y + index * lh));
+  return {height: lines.length * lh, fontSize: size, lines};
+}
+
+async function createStoryGraphic(dataUrl) {
+  const img = await loadImageFromDataUrl(dataUrl);
+  const canvas = document.createElement('canvas');
+  canvas.width = 1080;
+  canvas.height = 1920;
+  const ctx = canvas.getContext('2d');
+  drawCoverImage(ctx, img, canvas.width, canvas.height, 1.01, 0.38);
+
+  const style = state.assetStyleIndex % 3;
+  const gradient = ctx.createLinearGradient(0, canvas.height * .25, 0, canvas.height);
+  gradient.addColorStop(0, 'rgba(0,0,0,0)');
+  gradient.addColorStop(.55, style === 1 ? 'rgba(0,0,0,.08)' : 'rgba(0,0,0,.15)');
+  gradient.addColorStop(1, style === 2 ? 'rgba(8,32,25,.84)' : 'rgba(0,0,0,.78)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const profile = getProfile();
+  const overlay = state.result?.storyOverlayText || state.result?.postOverlayText || state.result?.headline || 'In store now';
+  const cta = state.result?.cta || 'Stop in and take a look.';
+  const brand = profile.businessName || 'Ocean State Spice & Tea Merchants';
+  const left = 72;
+  const maxWidth = canvas.width - 144;
+  const topY = canvas.height * .64;
+  const block = drawTextBlock(ctx, overlay, left, topY, maxWidth, 4, 86, 1.05, '#fff', 850);
+
+  ctx.font = '600 32px Inter, Arial, sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,.92)';
+  const ctaLines = wrapText(ctx, cta, maxWidth).slice(0, 3);
+  const ctaY = topY + block.height + 38;
+  ctaLines.forEach((line, i) => ctx.fillText(line, left, ctaY + i * 42));
+
+  const footerY = canvas.height - 102;
+  ctx.font = '700 25px Inter, Arial, sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,.88)';
+  ctx.fillText(brand, left, footerY);
+  return canvas.toDataURL('image/jpeg', .95);
+}
+
+function parseReelMediaIndex(item, fallbackIndex) {
+  const text = typeof item === 'string' ? item : `${item?.title || ''} ${item?.detail || item?.note || ''}`;
+  let match = text.match(/image\s*(\d+)/i) || text.match(/photo\s*(\d+)/i);
+  if (match) return Math.max(0, Math.min(state.photos.length - 1, Number(match[1]) - 1));
+  match = text.match(/(?:video\s*)?frame\s*(\d+)/i);
+  if (match) {
+    const frames = state.photos.map((photo, index) => photo.sourceType === 'videoFrame' ? index : -1).filter((index) => index >= 0);
+    const frameIndex = frames[Math.max(0, Number(match[1]) - 1)];
+    if (frameIndex !== undefined) return frameIndex;
+  }
+  return fallbackIndex % Math.max(1, state.photos.length);
+}
+
+
+function reelDurationMs(item) {
+  const text = typeof item === 'string' ? item : `${item?.detail || ''} ${item?.note || ''}`;
+  const range = text.match(/(\d+(?:\.\d+)?)\s*(?:-|–|—|to)\s*(\d+(?:\.\d+)?)\s*seconds?/i);
+  if (range) {
+    const average = (Number(range[1]) + Number(range[2])) / 2;
+    return Math.round(Math.min(5, Math.max(1.5, average)) * 1000);
+  }
+  const single = text.match(/(\d+(?:\.\d+)?)\s*seconds?/i);
+  if (single) return Math.round(Math.min(5, Math.max(1.5, Number(single[1]))) * 1000);
+  return 2200;
+}
+
+function buildReelSlides() {
+  if (!state.photos.length) return [];
+  const plan = Array.isArray(state.result?.reelPlan) ? state.result.reelPlan : [];
+  const desiredCount = Math.min(6, Math.max(3, plan.length || state.photos.length));
+  const slides = [];
+  for (let i = 0; i < desiredCount; i += 1) {
+    const item = plan[i] || null;
+    const mediaIndex = parseReelMediaIndex(item, i);
+    const photo = state.photos[mediaIndex] || state.photos[i % state.photos.length];
+    const overlay = typeof item === 'object' && item?.overlayText
+      ? item.overlayText
+      : (i === 0 ? state.result?.reelHook : state.result?.overlayText) || state.result?.postOverlayText || '';
+    slides.push({
+      dataUrl: photo.dataUrl,
+      overlay: String(overlay || ''),
+      title: typeof item === 'object' ? String(item.title || '') : '',
+      duration: reelDurationMs(item),
+      sourceIndex: mediaIndex,
+    });
+  }
+  return slides;
+}
+
+function stopReelPreview() {
+  if (state.reelPreviewTimer) clearTimeout(state.reelPreviewTimer);
+  state.reelPreviewTimer = null;
+  els.playReelBtn.textContent = '▶ Play preview';
+  els.reelPreview.classList.remove('playing');
+}
+
+function showReelSlide(index, animate = true) {
+  const slides = state.readyAssets.reelSlides || [];
+  if (!slides.length) return;
+  const slide = slides[index % slides.length];
+  state.reelPreviewIndex = index % slides.length;
+  els.reelPreviewImage.classList.remove('scene-enter');
+  els.reelPreviewImage.src = slide.dataUrl;
+  els.reelPreviewHook.textContent = state.reelPreviewIndex === 0 ? (state.result?.reelHook || '') : '';
+  els.reelPreviewOverlay.textContent = slide.overlay || '';
+  els.reelProgress.style.width = `${((state.reelPreviewIndex + 1) / slides.length) * 100}%`;
+  if (animate) requestAnimationFrame(() => els.reelPreviewImage.classList.add('scene-enter'));
+}
+
+function playReelPreview() {
+  const slides = state.readyAssets.reelSlides || [];
+  if (!slides.length) return;
+  if (state.reelPreviewTimer) {
+    stopReelPreview();
+    return;
+  }
+  els.playReelBtn.textContent = '■ Stop preview';
+  els.reelPreview.classList.add('playing');
+  let index = 0;
+  const advance = () => {
+    showReelSlide(index, true);
+    index += 1;
+    if (index >= slides.length) {
+      state.reelPreviewTimer = setTimeout(() => {
+        stopReelPreview();
+        showReelSlide(0, false);
+      }, slides[slides.length - 1].duration);
+      return;
+    }
+    state.reelPreviewTimer = setTimeout(advance, slides[index - 1].duration);
+  };
+  advance();
+}
+
+function chooseRecordingMimeType() {
+  const types = [
+    'video/mp4;codecs=h264',
+    'video/mp4',
+    'video/webm;codecs=vp9',
+    'video/webm;codecs=vp8',
+    'video/webm'
+  ];
+  return types.find((type) => globalThis.MediaRecorder?.isTypeSupported?.(type)) || '';
+}
+
+function drawReelCanvasFrame(ctx, img, slide, progress, width, height) {
+  ctx.save();
+  ctx.fillStyle = '#111';
+  ctx.fillRect(0, 0, width, height);
+  drawCoverImage(ctx, img, width, height, 1 + progress * .055, .40);
+  const gradient = ctx.createLinearGradient(0, height * .46, 0, height);
+  gradient.addColorStop(0, 'rgba(0,0,0,0)');
+  gradient.addColorStop(1, 'rgba(0,0,0,.72)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, height);
+  const left = 48;
+  const maxWidth = width - 96;
+  let y = height * .68;
+  if (slide.overlay) {
+    const block = drawTextBlock(ctx, slide.overlay, left, y, maxWidth, 3, 60, 1.05, '#fff', 850);
+    y += block.height + 24;
+  }
+  const brand = getProfile().businessName || '';
+  ctx.font = '650 20px Inter, Arial, sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,.9)';
+  const brandLines = wrapText(ctx, brand, maxWidth).slice(0, 2);
+  brandLines.forEach((line, i) => ctx.fillText(line, left, Math.min(height - 70, y + i * 28)));
+  ctx.restore();
+}
+
+async function exportReelVideo({returnBlob = false} = {}) {
+  const slides = state.readyAssets.reelSlides || [];
+  if (!slides.length) {
+    showToast('Create a package with media first');
+    return null;
+  }
+  if (!globalThis.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) {
+    showAuthNotice('This browser can preview the Reel but cannot export video. Try the latest Safari or Chrome on desktop.');
+    return null;
+  }
+  const mimeType = chooseRecordingMimeType();
+  if (!mimeType) {
+    showAuthNotice('Video export is not supported by this browser yet.');
+    return null;
+  }
+  els.downloadReelBtn.disabled = true;
+  els.downloadReelBtn.textContent = 'Rendering Reel…';
+  els.reelReadyBadge.textContent = 'Rendering';
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = 720;
+    canvas.height = 1280;
+    const ctx = canvas.getContext('2d');
+    const fps = 24;
+    const stream = canvas.captureStream(fps);
+    const recorder = new MediaRecorder(stream, {mimeType, videoBitsPerSecond: 5_000_000});
+    const chunks = [];
+    recorder.ondataavailable = (event) => { if (event.data?.size) chunks.push(event.data); };
+    const stopped = new Promise((resolve) => recorder.addEventListener('stop', resolve, {once: true}));
+    recorder.start(500);
+
+    const loaded = await Promise.all(slides.map((slide) => loadImageFromDataUrl(slide.dataUrl)));
+    for (let i = 0; i < slides.length; i += 1) {
+      const slide = slides[i];
+      const img = loaded[i];
+      const start = performance.now();
+      await new Promise((resolve) => {
+        const tick = (now) => {
+          const progress = Math.min(1, (now - start) / slide.duration);
+          drawReelCanvasFrame(ctx, img, slide, progress, canvas.width, canvas.height);
+          if (progress < 1) requestAnimationFrame(tick);
+          else resolve();
+        };
+        requestAnimationFrame(tick);
+      });
+    }
+    recorder.stop();
+    await stopped;
+    stream.getTracks().forEach((track) => track.stop());
+    const blob = new Blob(chunks, {type: mimeType});
+    state.readyAssets.reelBlob = blob;
+    state.readyAssets.reelMime = mimeType;
+    els.reelReadyBadge.textContent = 'Ready';
+    if (returnBlob) return blob;
+    const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `social-studio-reel.${ext}`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    showToast('Reel exported');
+    return blob;
+  } catch (error) {
+    console.error(error);
+    showAuthNotice('The Reel preview is ready, but video export failed on this device.');
+    return null;
+  } finally {
+    els.downloadReelBtn.disabled = false;
+    els.downloadReelBtn.textContent = 'Export Reel';
+    if (els.reelReadyBadge.textContent !== 'Ready') els.reelReadyBadge.textContent = 'Preview ready';
+  }
+}
+
+
+function activateAssetTab(name) {
+  state.activeAssetTab = name;
+  els.assetTabs?.forEach((button) => button.classList.toggle('active', button.dataset.assetTab === name));
+  els.assetPanels?.forEach((panel) => panel.classList.toggle('active', panel.dataset.assetPanel === name));
+  if (name !== 'reel') stopReelPreview();
+}
+
+function refreshApprovalButtons() {
+  els.approveBtns?.forEach((button) => {
+    const key = button.dataset.approve;
+    const approved = Boolean(state.approvedAssets?.[key]);
+    button.classList.toggle('approved', approved);
+    button.textContent = approved ? '✓ Approved' : '✓ Approve';
+  });
+}
+
+els.assetTabs?.forEach((button) => button.addEventListener('click', () => activateAssetTab(button.dataset.assetTab)));
+els.approveBtns?.forEach((button) => button.addEventListener('click', () => {
+  const key = button.dataset.approve;
+  if (!key) return;
+  state.approvedAssets[key] = !state.approvedAssets[key];
+  refreshApprovalButtons();
+  showToast(state.approvedAssets[key] ? `${key === 'feed' ? 'Post' : key === 'story' ? 'Story' : 'Reel'} approved` : 'Approval removed');
+}));
+
+async function renderWorkerAssets() {
+  if (!state.result || !state.photos.length || !els.workerAssets) {
+    els.workerAssets?.classList.add('hidden');
+    return;
+  }
+  stopReelPreview();
+  els.workerAssets.classList.remove('hidden');
+  els.assetStatus.textContent = 'Social Studio is finishing your media…';
+  els.assetStatus.classList.remove('hidden');
+  els.downloadFeedBtn.disabled = true;
+  els.downloadStoryBtn.disabled = true;
+  els.downloadPackageBtn.disabled = true;
+  els.downloadReelBtn.disabled = true;
+  try {
+    const leadIndex = leadPhotoIndex();
+    const leadPhoto = state.photos[leadIndex] || state.photos[0];
+    const enhanced = await createLocalEditedPhoto(leadPhoto.dataUrl, safeAiEditOptions(photoNoteText(leadIndex)));
+    const [feed, story] = await Promise.all([
+      createPostGraphic(enhanced),
+      createStoryGraphic(enhanced),
+    ]);
+    state.readyAssets.feed = feed;
+    state.readyAssets.story = story;
+    state.readyAssets.reelSlides = buildReelSlides();
+    state.readyAssets.reelBlob = null;
+    state.readyAssets.reelMime = '';
+    els.feedAssetPreview.src = feed;
+    els.storyAssetPreview.src = story;
+    if (state.readyAssets.reelSlides.length) showReelSlide(0, false);
+    els.downloadFeedBtn.disabled = false;
+    els.downloadStoryBtn.disabled = false;
+    els.downloadPackageBtn.disabled = false;
+    els.downloadReelBtn.disabled = !state.readyAssets.reelSlides.length;
+    activateAssetTab(state.activeAssetTab || 'feed');
+    refreshApprovalButtons();
+    els.assetStatus.textContent = 'Finished automatically with Preserve Reality. Your originals are untouched.';
+  } catch (error) {
+    console.error('Worker asset build failed', error);
+    els.assetStatus.textContent = 'The writing is ready, but one of the finished media assets could not be built on this device.';
+  }
+}
+
+async function downloadWorkerPackage() {
+  if (!state.readyAssets.feed || !state.readyAssets.story) return;
+  if (!globalThis.JSZip) {
+    downloadDataUrl(state.readyAssets.feed, 'social-studio-feed-post.jpg');
+    setTimeout(() => downloadDataUrl(state.readyAssets.story, 'social-studio-story.jpg'), 350);
+    showToast('Downloaded finished graphics');
+    return;
+  }
+  els.downloadPackageBtn.disabled = true;
+  els.downloadPackageBtn.textContent = 'Building package…';
+  try {
+    const zip = new JSZip();
+    if (!state.readyAssets.reelBlob && state.readyAssets.reelSlides?.length && globalThis.MediaRecorder && HTMLCanvasElement.prototype.captureStream) {
+      els.downloadPackageBtn.textContent = 'Rendering Reel…';
+      await exportReelVideo({returnBlob: true});
+      els.downloadPackageBtn.textContent = 'Building package…';
+    }
+    const feedBlob = await dataUrlToBlob(state.readyAssets.feed);
+    const storyBlob = await dataUrlToBlob(state.readyAssets.story);
+    zip.file('01-feed-post-4x5.jpg', feedBlob);
+    zip.file('02-story-9x16.jpg', storyBlob);
+    const hashtags = Array.isArray(state.result?.hashtags) ? state.result.hashtags.join(' ') : (state.result?.hashtags || '');
+    const text = [
+      'PRIMARY CAPTION', state.result?.caption || '', '',
+      'SHORT ALTERNATE', state.result?.alternate || '', '',
+      'HASHTAGS', hashtags, '',
+      'POST OVERLAY', state.result?.postOverlayText || '', '',
+      'STORY COPY', state.result?.story || '', '',
+      'CALL TO ACTION', state.result?.cta || ''
+    ].join('\n');
+    zip.file('03-copy-and-captions.txt', text);
+    if (state.readyAssets.reelBlob) {
+      const ext = state.readyAssets.reelMime.includes('mp4') ? 'mp4' : 'webm';
+      zip.file(`04-reel.${ext}`, state.readyAssets.reelBlob);
+    } else {
+      zip.file('04-reel-note.txt', 'Your Reel preview is assembled in Social Studio. Tap Export Reel in the app to render the downloadable video on a supported device.');
+    }
+    zip.file('README.txt', 'Social Studio Worker Mode package. Feed and Story graphics preserve the uploaded products, labels and logos; the source photos were not regenerated.');
+    const blob = await zip.generateAsync({type: 'blob', compression: 'DEFLATE', compressionOptions: {level: 6}});
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'social-studio-content-package.zip';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    showToast('Content package downloaded');
+  } catch (error) {
+    console.error(error);
+    showAuthNotice('The package could not be zipped on this device. You can still download each finished asset separately.');
+  } finally {
+    els.downloadPackageBtn.disabled = false;
+    els.downloadPackageBtn.textContent = 'Download package';
+  }
+}
+
+els.downloadFeedBtn?.addEventListener('click', () => downloadDataUrl(state.readyAssets.feed, 'social-studio-feed-post.jpg'));
+els.downloadStoryBtn?.addEventListener('click', () => downloadDataUrl(state.readyAssets.story, 'social-studio-story.jpg'));
+els.playReelBtn?.addEventListener('click', playReelPreview);
+els.downloadReelBtn?.addEventListener('click', () => exportReelVideo());
+els.downloadPackageBtn?.addEventListener('click', downloadWorkerPackage);
+els.copyFullPostBtn?.addEventListener('click', async () => {
+  if (!state.result) return;
+  const hashtags = Array.isArray(state.result.hashtags) ? state.result.hashtags.join(' ') : (state.result.hashtags || '');
+  await navigator.clipboard.writeText([state.result.caption || '', hashtags].filter(Boolean).join('\n\n'));
+  showToast('Post + hashtags copied');
+});
 
 async function runLocalPhotoTool(tool, sourceButton = null) {
   const photo = getSelectedPhoto();
@@ -1200,7 +1858,7 @@ async function saveCurrentProject() {
 function loadRecentProjects() {
   try {
     const currentRaw = localStorage.getItem(PROJECTS_STORAGE_KEY);
-    const legacyRaw = localStorage.getItem('socialStudioRecentProjectsV10') || localStorage.getItem('socialStudioRecentProjectsV09') || localStorage.getItem('socialStudioRecentProjectsV08');
+    const legacyRaw = localStorage.getItem('socialStudioRecentProjectsV11') || localStorage.getItem('socialStudioRecentProjectsV10') || localStorage.getItem('socialStudioRecentProjectsV09') || localStorage.getItem('socialStudioRecentProjectsV08');
     state.recentProjects = JSON.parse(currentRaw || legacyRaw || '[]');
     if (!Array.isArray(state.recentProjects)) state.recentProjects = [];
     if (!currentRaw && legacyRaw && state.recentProjects.length) {
@@ -1237,6 +1895,8 @@ function applyProject(project) {
   state.photos = Array.isArray(project.photos) ? project.photos : [];
   state.videoSource = project.videoSource || null;
   state.result = project.result || null;
+  state.readyAssets = {feed: '', story: '', reelSlides: [], reelBlob: null, reelMime: ''};
+  stopReelPreview();
   els.description.value = project.description || '';
   els.contentType.value = project.contentType || 'Full social package';
   els.tone.value = project.tone || 'warm, polished, local, and inviting';
@@ -1265,7 +1925,7 @@ function loadProject(projectId) {
 
 els.clearProjectsBtn.addEventListener('click', () => {
   state.recentProjects = [];
-  ['socialStudioRecentProjectsV11', 'socialStudioRecentProjectsV10', 'socialStudioRecentProjectsV09', 'socialStudioRecentProjectsV08'].forEach((key) => localStorage.removeItem(key));
+  ['socialStudioRecentProjectsV12', 'socialStudioRecentProjectsV11', 'socialStudioRecentProjectsV10', 'socialStudioRecentProjectsV09', 'socialStudioRecentProjectsV08'].forEach((key) => localStorage.removeItem(key));
   renderRecentProjects();
   showToast('Recent projects cleared');
 });
@@ -1275,5 +1935,6 @@ loadRecentProjects();
 updateReelModeVisibility();
 refreshSelectedPhotoOptions();
 renderToolsState();
+refreshRefineButtons();
 activateView('create', {scroll: false});
 initFirebase();

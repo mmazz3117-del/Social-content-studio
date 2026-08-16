@@ -13,7 +13,7 @@
       <div class="topbar-inner">
         <div class="brand-lockup">
           <div class="brand-mark">OS</div>
-          <div class="title-row"><h1>Social Studio</h1><span class="version-tag">v1.1</span></div>
+          <div class="title-row"><h1>Social Studio</h1><span class="version-tag">v1.2</span></div>
         </div>
         <div class="topbar-actions">
           <span id="apiStatus" class="status-pill demo">Sign in to connect</span>
@@ -47,10 +47,15 @@
 
           <div id="dropZone" class="media-actions" aria-label="Add photos or video">
             <label class="media-action photo-action" for="photoInput">
-              <span class="media-action-icon">📷</span>
-              <strong>Add Photos</strong>
-              <small>JPG, PNG or WebP</small>
+              <span class="media-action-icon">🖼️</span>
+              <strong>Choose Photos</strong>
+              <small>Select several at once</small>
             </label>
+            <button id="takePhotosBtn" class="media-action multi-photo-action" type="button">
+              <span class="media-action-icon">📸</span>
+              <strong>Take Photos</strong>
+              <small>Multi-shot • Beta</small>
+            </button>
             <label class="media-action video-action recommended" for="videoInput">
               <span class="media-action-icon">🎞️</span>
               <strong>Choose Video</strong>
@@ -58,11 +63,11 @@
             </label>
             <button id="recordVideoBtn" class="media-action record-action" type="button">
               <span class="media-action-icon">🎥</span>
-              <strong>Record Here</strong>
+              <strong>Record Video</strong>
               <small>Beta</small>
             </button>
           </div>
-          <p class="quality-tip"><strong>Best video quality:</strong> record with the iPhone Camera app first, then tap <em>Choose Video</em>. Browser recording is available as a beta option.</p>
+          <p class="quality-tip"><strong>Best quality:</strong> use your iPhone Camera app and then choose several photos or a video. <em>Take Photos</em> and <em>Record Video</em> keep you inside Social Studio for convenience, but browser camera quality can vary by device.</p>
           <div id="photoGrid" class="photo-grid" aria-live="polite"></div>
         </section>
 
@@ -136,7 +141,7 @@
         <div id="emptyState" class="empty-view-card">
           <div class="empty-icon">📝</div>
           <h2>No results yet</h2>
-          <p>Create a social package and your caption, Reel plan and Story will appear here.</p>
+          <p>Create a social package and Social Studio will build finished post, Story and Reel assets for you.</p>
           <button id="goCreateFromEmpty" class="primary-btn compact-primary" type="button">Go to Create</button>
         </div>
 
@@ -149,8 +154,55 @@
             <button id="newBtn" class="small-action-btn" type="button">Start new</button>
           </div>
 
+          <section id="workerAssets" class="worker-assets hidden" aria-live="polite">
+            <div class="worker-assets-head">
+              <div>
+                <span class="view-kicker">WORKER MODE</span>
+                <h3>Your finished content is ready</h3>
+                <p>Review the finished media Social Studio built for you. Instructions are secondary now.</p>
+              </div>
+              <button id="downloadPackageBtn" class="package-btn" type="button">Download all</button>
+            </div>
+
+            <div class="asset-tabs" role="tablist" aria-label="Finished content">
+              <button class="asset-tab active" data-asset-tab="feed" type="button">🖼️ Post</button>
+              <button class="asset-tab" data-asset-tab="story" type="button">✨ Story</button>
+              <button class="asset-tab" data-asset-tab="reel" type="button">🎬 Reel</button>
+            </div>
+
+            <article class="asset-card asset-panel active" data-asset-panel="feed">
+              <div class="asset-card-head"><div><span>FINISHED FEED ASSET</span><h4>4:5 Instagram / Facebook Post</h4></div><span class="ready-dot">Ready</span></div>
+              <div class="asset-frame feed-frame worker-main-frame"><img id="feedAssetPreview" alt="Finished feed post preview" /></div>
+              <div class="finished-actions"><button id="downloadFeedBtn" class="asset-action" type="button">Download post</button><button class="approve-btn" data-approve="feed" type="button">✓ Approve</button></div>
+            </article>
+
+            <article class="asset-card asset-panel" data-asset-panel="story">
+              <div class="asset-card-head"><div><span>FINISHED STORY ASSET</span><h4>9:16 Story</h4></div><span class="ready-dot">Ready</span></div>
+              <div class="asset-frame story-frame worker-main-frame story-main-frame"><img id="storyAssetPreview" alt="Finished Story preview" /></div>
+              <div class="finished-actions"><button id="downloadStoryBtn" class="asset-action" type="button">Download Story</button><button class="approve-btn" data-approve="story" type="button">✓ Approve</button></div>
+            </article>
+
+            <article class="asset-card asset-panel" data-asset-panel="reel">
+              <div class="asset-card-head"><div><span>FINISHED REEL</span><h4>Auto-assembled Reel</h4></div><span id="reelReadyBadge" class="ready-dot">Ready</span></div>
+              <div id="reelPreview" class="reel-preview worker-reel-preview" aria-label="Reel preview">
+                <img id="reelPreviewImage" alt="Reel scene preview" />
+                <div class="reel-shade"></div>
+                <div class="reel-copy"><div id="reelPreviewHook" class="reel-hook"></div><div id="reelPreviewOverlay" class="reel-overlay"></div></div>
+                <div id="reelProgress" class="reel-progress"></div>
+              </div>
+              <div class="reel-actions finished-actions">
+                <button id="playReelBtn" class="asset-action secondary-asset" type="button">▶ Play preview</button>
+                <button id="downloadReelBtn" class="asset-action" type="button">Export Reel</button>
+                <button class="approve-btn" data-approve="reel" type="button">✓ Approve</button>
+              </div>
+              <p class="asset-helper">Built automatically from your uploaded media and the AI plan. If video was uploaded, sampled frames are used for this first Worker Mode version; the original video remains untouched on your device.</p>
+            </article>
+
+            <div id="assetStatus" class="asset-status">Finishing your media…</div>
+          </section>
+
           <details class="quick-tweaks" open>
-            <summary>Quick tweaks</summary>
+            <summary>Quick tweaks <span>• one tap</span></summary>
             <div class="refine-actions">
               <button class="refine-btn" data-refine="shorter" type="button">Shorter</button>
               <button class="refine-btn" data-refine="more_fun" type="button">More Fun</button>
@@ -166,19 +218,24 @@
           </div>
 
           <div class="result-panel" data-panel="caption">
-            <div class="result-card accent-mint"><div class="result-card-head"><h3>Primary caption</h3><button class="copy-btn" data-copy="caption" type="button">Copy</button></div><div id="captionOutput" class="formatted-output"></div></div>
+            <div class="result-card accent-mint"><div class="result-card-head"><h3>Primary caption</h3><div class="card-actions"><button id="copyFullPostBtn" class="copy-btn" type="button">Copy post + tags</button><button class="copy-btn" data-copy="caption" type="button">Copy</button></div></div><div id="captionOutput" class="formatted-output"></div></div>
             <div class="result-card accent-lavender"><div class="result-card-head"><h3>Short alternate</h3><button class="copy-btn" data-copy="alternate" type="button">Copy</button></div><div id="alternateOutput" class="formatted-output"></div></div>
             <div class="result-card accent-sky"><div class="result-card-head"><h3>Hashtags</h3><button class="copy-btn" data-copy="hashtags" type="button">Copy</button></div><div id="hashtagsOutput" class="formatted-output hashtags"></div></div>
             <div class="result-card accent-peach"><div class="result-card-head"><h3>Post overlay text</h3><button class="copy-btn" data-copy="postOverlayText" type="button">Copy</button></div><div id="postOverlayOutput" class="formatted-output"></div></div>
           </div>
 
           <div class="result-panel hidden" data-panel="reel">
-            <div class="result-card accent-coral"><div class="result-card-head"><h3>Opening hook</h3><button class="copy-btn" data-copy="reelHook" type="button">Copy</button></div><div id="reelHookOutput" class="formatted-output"></div></div>
-            <div class="result-card accent-mint">
-              <div class="result-card-head"><h3>Step-by-step Reel plan</h3><button id="detailsToggleBtn" class="copy-btn" type="button">Expand all</button></div>
-              <div id="reelPlanOutput" class="sequence-list"></div>
-            </div>
-            <div class="result-card accent-sky"><div class="result-card-head"><h3>On-screen text</h3><button class="copy-btn" data-copy="overlayText" type="button">Copy</button></div><div id="overlayOutput" class="formatted-output"></div></div>
+            <details class="production-notes">
+              <summary><span>Behind the build</span><strong>Production notes &amp; shot plan</strong></summary>
+              <div class="production-notes-body">
+                <div class="result-card accent-coral"><div class="result-card-head"><h3>Opening hook</h3><button class="copy-btn" data-copy="reelHook" type="button">Copy</button></div><div id="reelHookOutput" class="formatted-output"></div></div>
+                <div class="result-card accent-mint">
+                  <div class="result-card-head"><h3>Shot plan Social Studio used</h3><button id="detailsToggleBtn" class="copy-btn" type="button">Expand all</button></div>
+                  <div id="reelPlanOutput" class="sequence-list"></div>
+                </div>
+                <div class="result-card accent-sky"><div class="result-card-head"><h3>On-screen text</h3><button class="copy-btn" data-copy="overlayText" type="button">Copy</button></div><div id="overlayOutput" class="formatted-output"></div></div>
+              </div>
+            </details>
           </div>
 
           <div class="result-panel hidden" data-panel="story">
@@ -205,7 +262,7 @@
       <!-- TOOLS -->
       <section id="toolsView" class="app-view" data-view="tools">
         <div class="view-heading tools-heading">
-          <div><span class="view-kicker">TOOLS</span><h2>Photo tools</h2><p>Crop, enhance and build finished social graphics without changing your real products.</p></div>
+          <div><span class="view-kicker">TOOLS</span><h2>Finish &amp; polish</h2><p>Social Studio does the production work while preserving your real products, labels and logos.</p></div>
           <div class="view-icon">📸</div>
         </div>
 
@@ -218,8 +275,13 @@
 
         <div id="toolsState" class="tools-state hidden">
           <div id="analysisTools" class="tools-analysis hidden">
-            <div class="result-card accent-sky"><div class="result-card-head"><h3>Best lead image</h3></div><div id="leadImageOutput" class="formatted-output"></div></div>
-            <div class="result-card accent-mint"><div class="result-card-head"><h3>Photo feedback</h3></div><div id="visualNotesOutput" class="sequence-list"></div></div>
+            <details class="production-notes tool-notes">
+              <summary><span>Why this works</span><strong>AI production notes</strong></summary>
+              <div class="production-notes-body">
+                <div class="result-card accent-sky"><div class="result-card-head"><h3>Best lead image</h3></div><div id="leadImageOutput" class="formatted-output"></div></div>
+                <div class="result-card accent-mint"><div class="result-card-head"><h3>Photo notes</h3></div><div id="visualNotesOutput" class="sequence-list"></div></div>
+              </div>
+            </details>
           </div>
 
           <section class="panel photo-tools-card">
@@ -283,6 +345,21 @@
     </form>
   </dialog>
 
+
+  <dialog id="photoCameraDialog" class="camera-dialog photo-camera-dialog">
+    <div class="camera-card">
+      <div class="camera-head"><div><span class="view-kicker">MULTI-SHOT • BETA</span><h2>Take several photos</h2></div><button id="closePhotoCameraBtn" class="close-btn" type="button" aria-label="Close photo camera">×</button></div>
+      <div class="camera-stage photo-camera-stage"><video id="photoCameraPreview" autoplay muted playsinline></video><div id="photoCameraStatus" class="camera-status">Opening rear camera…</div></div>
+      <p class="camera-tip">Tap the shutter for each angle. The camera stays open until you tap <strong>Use Photos</strong>. For the highest image quality, you can also take photos in the iPhone Camera app and use <strong>Choose Photos</strong>.</p>
+      <div class="capture-status-row"><strong id="photoCaptureCount">0 photos</strong><span>Up to 6 total media items</span></div>
+      <div id="photoCaptureStrip" class="photo-capture-strip" aria-live="polite"></div>
+      <div class="photo-camera-actions">
+        <button id="photoShutterBtn" class="shutter-btn" type="button" aria-label="Take photo"><span></span></button>
+        <button id="useCapturedPhotosBtn" class="primary-btn compact-primary" type="button" disabled>Use Photos</button>
+      </div>
+    </div>
+  </dialog>
+
   <dialog id="cameraDialog" class="camera-dialog">
     <div class="camera-card">
       <div class="camera-head"><div><span class="view-kicker">BETA</span><h2>Record video</h2></div><button id="closeCameraBtn" class="close-btn" type="button" aria-label="Close camera">×</button></div>
@@ -296,6 +373,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-functions-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
