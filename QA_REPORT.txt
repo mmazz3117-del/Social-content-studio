@@ -1,41 +1,9 @@
-SOCIAL STUDIO v1.2 — WORKER MODE FINAL QA
-Generated: 2026-08-16
+SOCIAL STUDIO v1.3 — SAVE & SHARE QA
 
-BASELINE
-- Reviewed the uploaded v1.2 Worker Mode package against the live v1.1 mobile trial screenshots and the project goal: Social Studio should act like a content worker, not just an advisor.
-- Firebase project/config/function names unchanged.
-- No Firebase backend redeploy is required for this frontend release.
-
-STATIC CHECKS
-- app.js passes Node JavaScript syntax validation.
-- All document.getElementById references resolve to an element in index.html.
-- No duplicate HTML IDs detected.
-- Root deployment files preserved: index.html, app.js, styles.css, vercel.json.
-
-WORKER MODE
-- Finished-media-first results remain the primary workflow.
-- Automatically creates a ready-to-download 4:5 feed post using the real uploaded image pixels.
-- Automatically creates a ready-to-download 9:16 Story using the real uploaded image pixels.
-- Automatically assembles a Reel preview from uploaded photos / sampled video frames using the AI plan.
-- Reel slide timing now follows duration language in the AI plan when available instead of using one fixed timing for every scene.
-- Finished Post / Story / Reel are now reviewed one at a time with compact asset tabs to reduce scrolling.
-- Approve / Approved controls added for each finished asset.
-- Download All remains available for the complete package.
-- Quick Tweaks are refreshed into an active visual state after generation/refinement.
-- Production instructions remain secondary under Behind the build / AI production notes.
-
-MULTI-SHOT PHOTO CAPTURE
-- Added Take Photos — Multi-shot Beta.
-- Rear-camera preview stays open while the user takes several angles.
-- Captured thumbnails remain visible; individual captures can be removed before using them.
-- Captures respect the existing six-media-item limit.
-- Choose Photos remains the recommended path for highest native-camera quality.
-
-PRESERVE REALITY
-- Feed / Story / Reel imagery uses original uploaded/captured pixels plus non-generative crop, light, color, motion and text treatments.
-- Products, labels, packaging, logos and shelf contents are not regenerated.
-
-VIDEO NOTE
-- The original video remains on-device and Social Studio currently samples frames for AI understanding and first-generation Reel assembly.
-- Browser camera/video quality varies by device; native iPhone Camera + Choose Video remains the recommended high-quality path.
-- Reel video export is feature-detected at runtime; the playable preview remains available when on-device encoding is unsupported.
+- Built from the revised v1.2 Worker Mode frontend.
+- Replaced unverified anchor-download success messages for finished media.
+- Added native file sharing with navigator.share/navigator.canShare and browser-download fallback.
+- Reel save is intentionally two-step so iPhone has a fresh user gesture when the share sheet is opened after rendering.
+- Package save is intentionally two-step for the same reason.
+- Post/Story/edited-image save opens directly from the user tap.
+- JavaScript syntax, duplicate HTML IDs, and DOM reference checks run before packaging.

@@ -38,7 +38,7 @@ const state = {
   recentProjects: [],
   videoSource: null,
   activeView: 'create',
-  readyAssets: {feed: '', story: '', reelSlides: [], reelBlob: null, reelMime: ''},
+  readyAssets: {feed: '', story: '', reelSlides: [], reelBlob: null, reelMime: '', packageBlob: null},
   reelPreviewTimer: null,
   reelPreviewIndex: 0,
   assetStyleIndex: 0,
@@ -989,7 +989,7 @@ function resetForNewProject() {
   state.result = null;
   state.videoSource = null;
   state.selectedPhotoIndex = 0;
-  state.readyAssets = {feed: '', story: '', reelSlides: [], reelBlob: null, reelMime: ''};
+  state.readyAssets = {feed: '', story: '', reelSlides: [], reelBlob: null, reelMime: '', packageBlob: null};
   state.approvedAssets = {feed: false, story: false, reel: false};
   activateAssetTab('feed');
   stopReelPreview();
@@ -1264,14 +1264,55 @@ function photoNoteText(index) {
   return notes[index]?.detail || notes[index]?.note || '';
 }
 
-function downloadDataUrl(dataUrl, filename) {
-  if (!dataUrl) return;
+function dataUrlToFile(dataUrl, filename) {
+  const match = String(dataUrl || '').match(/^data:([^;,]+);base64,(.+)$/);
+  if (!match) throw new Error('Invalid media data');
+  const mime = match[1] || 'application/octet-stream';
+  const binary = atob(match[2]);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return new File([bytes], filename, {type: mime});
+}
+
+function requestBrowserDownload(file) {
+  const url = URL.createObjectURL(file);
   const anchor = document.createElement('a');
-  anchor.href = dataUrl;
-  anchor.download = filename;
+  anchor.href = url;
+  anchor.download = file.name || 'social-studio-file';
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+async function shareOrSaveFile(file, {title = 'Social Studio', text = ''} = {}) {
+  if (!file) return false;
+  const shareData = {files: [file], title, text};
+  const canShareFiles = Boolean(navigator.share && navigator.canShare && navigator.canShare(shareData));
+  if (canShareFiles) {
+    try {
+      await navigator.share(shareData);
+      return true;
+    } catch (error) {
+      if (error?.name === 'AbortError') return false;
+      console.warn('Native file share failed; falling back to browser download', error);
+    }
+  }
+  requestBrowserDownload(file);
+  showAuthNotice('The browser was asked to download the file, but Social Studio cannot confirm that iPhone saved it. If nothing appears, use the Save / Share option from Safari.');
+  return false;
+}
+
+async function shareDataUrlAsset(dataUrl, filename, title) {
+  if (!dataUrl) return false;
+  try {
+    const file = dataUrlToFile(dataUrl, filename);
+    return await shareOrSaveFile(file, {title});
+  } catch (error) {
+    console.error(error);
+    showAuthNotice('That finished asset could not be prepared for saving.');
+    return false;
+  }
 }
 
 async function dataUrlToBlob(dataUrl) {
@@ -1461,24 +1502,9 @@ function drawReelCanvasFrame(ctx, img, slide, progress, width, height) {
   ctx.save();
   ctx.fillStyle = '#111';
   ctx.fillRect(0, 0, width, height);
+  // Keep the exported Reel clean. Suggested hook/overlay text remains in the
+  // app as reference only so the user can add final text while posting.
   drawCoverImage(ctx, img, width, height, 1 + progress * .055, .40);
-  const gradient = ctx.createLinearGradient(0, height * .46, 0, height);
-  gradient.addColorStop(0, 'rgba(0,0,0,0)');
-  gradient.addColorStop(1, 'rgba(0,0,0,.72)');
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, width, height);
-  const left = 48;
-  const maxWidth = width - 96;
-  let y = height * .68;
-  if (slide.overlay) {
-    const block = drawTextBlock(ctx, slide.overlay, left, y, maxWidth, 3, 60, 1.05, '#fff', 850);
-    y += block.height + 24;
-  }
-  const brand = getProfile().businessName || '';
-  ctx.font = '650 20px Inter, Arial, sans-serif';
-  ctx.fillStyle = 'rgba(255,255,255,.9)';
-  const brandLines = wrapText(ctx, brand, maxWidth).slice(0, 2);
-  brandLines.forEach((line, i) => ctx.fillText(line, left, Math.min(height - 70, y + i * 28)));
   ctx.restore();
 }
 
@@ -1535,17 +1561,11 @@ async function exportReelVideo({returnBlob = false} = {}) {
     state.readyAssets.reelBlob = blob;
     state.readyAssets.reelMime = mimeType;
     els.reelReadyBadge.textContent = 'Ready';
-    if (returnBlob) return blob;
-    const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `social-studio-reel.${ext}`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
-    showToast('Reel exported');
+    if (!returnBlob) {
+      els.reelReadyBadge.textContent = 'Ready to save';
+      els.downloadReelBtn.textContent = 'Save / Share Reel';
+      showToast('Reel ready — tap Save / Share Reel');
+    }
     return blob;
   } catch (error) {
     console.error(error);
@@ -1553,8 +1573,13 @@ async function exportReelVideo({returnBlob = false} = {}) {
     return null;
   } finally {
     els.downloadReelBtn.disabled = false;
-    els.downloadReelBtn.textContent = 'Export Reel';
-    if (els.reelReadyBadge.textContent !== 'Ready') els.reelReadyBadge.textContent = 'Preview ready';
+    if (state.readyAssets.reelBlob) {
+      els.downloadReelBtn.textContent = 'Save / Share Reel';
+      if (els.reelReadyBadge.textContent !== 'Ready to save') els.reelReadyBadge.textContent = 'Ready to save';
+    } else {
+      els.downloadReelBtn.textContent = 'Render Reel';
+      if (els.reelReadyBadge.textContent !== 'Ready') els.reelReadyBadge.textContent = 'Preview ready';
+    }
   }
 }
 
@@ -1610,13 +1635,18 @@ async function renderWorkerAssets() {
     state.readyAssets.reelSlides = buildReelSlides();
     state.readyAssets.reelBlob = null;
     state.readyAssets.reelMime = '';
+    state.readyAssets.packageBlob = null;
     els.feedAssetPreview.src = feed;
     els.storyAssetPreview.src = story;
     if (state.readyAssets.reelSlides.length) showReelSlide(0, false);
     els.downloadFeedBtn.disabled = false;
     els.downloadStoryBtn.disabled = false;
     els.downloadPackageBtn.disabled = false;
+    els.downloadFeedBtn.textContent = 'Save / Share Post';
+    els.downloadStoryBtn.textContent = 'Save / Share Story';
+    els.downloadPackageBtn.textContent = 'Prepare package';
     els.downloadReelBtn.disabled = !state.readyAssets.reelSlides.length;
+    els.downloadReelBtn.textContent = state.readyAssets.reelSlides.length ? 'Render Reel' : 'Reel unavailable';
     activateAssetTab(state.activeAssetTab || 'feed');
     refreshApprovalButtons();
     els.assetStatus.textContent = 'Finished automatically with Preserve Reality. Your originals are untouched.';
@@ -1626,14 +1656,20 @@ async function renderWorkerAssets() {
   }
 }
 
-async function downloadWorkerPackage() {
+async function prepareWorkerPackage() {
   if (!state.readyAssets.feed || !state.readyAssets.story) return;
-  if (!globalThis.JSZip) {
-    downloadDataUrl(state.readyAssets.feed, 'social-studio-feed-post.jpg');
-    setTimeout(() => downloadDataUrl(state.readyAssets.story, 'social-studio-story.jpg'), 350);
-    showToast('Downloaded finished graphics');
+
+  if (state.readyAssets.packageBlob) {
+    const file = new File([state.readyAssets.packageBlob], 'social-studio-content-package.zip', {type: 'application/zip'});
+    await shareOrSaveFile(file, {title: 'Social Studio content package'});
     return;
   }
+
+  if (!globalThis.JSZip) {
+    showAuthNotice('Package ZIP creation is not available on this device. Save the Post and Story separately using their Save / Share buttons.');
+    return;
+  }
+
   els.downloadPackageBtn.disabled = true;
   els.downloadPackageBtn.textContent = 'Building package…';
   try {
@@ -1648,7 +1684,7 @@ async function downloadWorkerPackage() {
     zip.file('01-feed-post-4x5.jpg', feedBlob);
     zip.file('02-story-9x16.jpg', storyBlob);
     const hashtags = Array.isArray(state.result?.hashtags) ? state.result.hashtags.join(' ') : (state.result?.hashtags || '');
-    const text = [
+    const copyText = [
       'PRIMARY CAPTION', state.result?.caption || '', '',
       'SHORT ALTERNATE', state.result?.alternate || '', '',
       'HASHTAGS', hashtags, '',
@@ -1656,38 +1692,41 @@ async function downloadWorkerPackage() {
       'STORY COPY', state.result?.story || '', '',
       'CALL TO ACTION', state.result?.cta || ''
     ].join('\n');
-    zip.file('03-copy-and-captions.txt', text);
+    zip.file('03-copy-and-captions.txt', copyText);
     if (state.readyAssets.reelBlob) {
       const ext = state.readyAssets.reelMime.includes('mp4') ? 'mp4' : 'webm';
       zip.file(`04-reel.${ext}`, state.readyAssets.reelBlob);
     } else {
-      zip.file('04-reel-note.txt', 'Your Reel preview is assembled in Social Studio. Tap Export Reel in the app to render the downloadable video on a supported device.');
+      zip.file('04-reel-note.txt', 'Your Reel preview is assembled in Social Studio. Render the Reel in the app, then use Save / Share Reel.');
     }
     zip.file('README.txt', 'Social Studio Worker Mode package. Feed and Story graphics preserve the uploaded products, labels and logos; the source photos were not regenerated.');
     const blob = await zip.generateAsync({type: 'blob', compression: 'DEFLATE', compressionOptions: {level: 6}});
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = 'social-studio-content-package.zip';
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
-    showToast('Content package downloaded');
+    state.readyAssets.packageBlob = blob;
+    els.downloadPackageBtn.textContent = 'Save / Share Package';
+    showToast('Package ready — tap Save / Share Package');
   } catch (error) {
     console.error(error);
-    showAuthNotice('The package could not be zipped on this device. You can still download each finished asset separately.');
+    showAuthNotice('The package could not be built on this device. You can still save each finished asset separately.');
+    els.downloadPackageBtn.textContent = 'Prepare package';
   } finally {
     els.downloadPackageBtn.disabled = false;
-    els.downloadPackageBtn.textContent = 'Download package';
   }
 }
 
-els.downloadFeedBtn?.addEventListener('click', () => downloadDataUrl(state.readyAssets.feed, 'social-studio-feed-post.jpg'));
-els.downloadStoryBtn?.addEventListener('click', () => downloadDataUrl(state.readyAssets.story, 'social-studio-story.jpg'));
+els.downloadFeedBtn?.addEventListener('click', () => shareDataUrlAsset(state.readyAssets.feed, 'social-studio-feed-post.jpg', 'Social Studio feed post'));
+els.downloadStoryBtn?.addEventListener('click', () => shareDataUrlAsset(state.readyAssets.story, 'social-studio-story.jpg', 'Social Studio Story'));
 els.playReelBtn?.addEventListener('click', playReelPreview);
-els.downloadReelBtn?.addEventListener('click', () => exportReelVideo());
-els.downloadPackageBtn?.addEventListener('click', downloadWorkerPackage);
+els.downloadReelBtn?.addEventListener('click', async () => {
+  if (!state.readyAssets.reelBlob) {
+    await exportReelVideo({returnBlob: false});
+    return;
+  }
+  const ext = state.readyAssets.reelMime.includes('mp4') ? 'mp4' : 'webm';
+  const file = new File([state.readyAssets.reelBlob], `social-studio-reel.${ext}`, {type: state.readyAssets.reelMime || state.readyAssets.reelBlob.type || 'video/mp4'});
+  await shareOrSaveFile(file, {title: 'Social Studio Reel'});
+});
+els.downloadPackageBtn?.addEventListener('click', prepareWorkerPackage);
+
 els.copyFullPostBtn?.addEventListener('click', async () => {
   if (!state.result) return;
   const hashtags = Array.isArray(state.result.hashtags) ? state.result.hashtags.join(' ') : (state.result.hashtags || '');
@@ -1773,15 +1812,10 @@ els.preview916Btn.addEventListener('click', () => runLocalPhotoTool('9x16', els.
 els.previewAiBtn.addEventListener('click', () => runAiCleanup(els.previewAiBtn));
 els.previewGraphicBtn.addEventListener('click', () => runLocalPhotoTool('postGraphic', els.previewGraphicBtn));
 
-els.downloadEditedBtn.addEventListener('click', () => {
+els.downloadEditedBtn.addEventListener('click', async () => {
   if (!state.editedPhotoDataUrl) return;
-  const anchor = document.createElement('a');
   const safeLabel = (state.editedPhotoLabel || 'edited-photo').toLowerCase().replace(/[^a-z0-9]+/g, '-');
-  anchor.href = state.editedPhotoDataUrl;
-  anchor.download = `${safeLabel || 'edited-photo'}.jpg`;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
+  await shareDataUrlAsset(state.editedPhotoDataUrl, `${safeLabel || 'edited-photo'}.jpg`, state.editedPhotoLabel || 'Social Studio edited photo');
 });
 
 async function compressDataUrlForHistory(dataUrl) {
@@ -1895,7 +1929,7 @@ function applyProject(project) {
   state.photos = Array.isArray(project.photos) ? project.photos : [];
   state.videoSource = project.videoSource || null;
   state.result = project.result || null;
-  state.readyAssets = {feed: '', story: '', reelSlides: [], reelBlob: null, reelMime: ''};
+  state.readyAssets = {feed: '', story: '', reelSlides: [], reelBlob: null, reelMime: '', packageBlob: null};
   stopReelPreview();
   els.description.value = project.description || '';
   els.contentType.value = project.contentType || 'Full social package';

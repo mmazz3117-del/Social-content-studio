@@ -849,3 +849,51 @@ label > span { display: block; margin-bottom: 7px; color: #43564f; font-size: 12
   .asset-panel .reel-actions.finished-actions { grid-template-columns: 1fr 1fr; }
   .asset-panel .reel-actions .approve-btn { grid-column: 1 / -1; margin-top: 0; }
 }
+
+/* v1.3 — reliable iPhone save/share flow */
+.share-save-note {
+  margin: 10px 4px 12px;
+  color: #61716b;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* v1.3 final: Reel text is reference-only, not burned into exported video. */
+.reel-text-reference {
+  margin: 12px auto 0;
+  width: min(100%, 430px);
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #f7faf8;
+  color: var(--brand);
+}
+.reel-text-reference > span {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .12em;
+  color: #5b6c66;
+}
+.reel-text-reference .reel-hook {
+  color: var(--ink);
+  text-shadow: none;
+  font-size: 14px;
+  line-height: 1.25;
+  margin-bottom: 5px;
+}
+.reel-text-reference .reel-overlay {
+  color: #496059;
+  text-shadow: none;
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 750;
+}
+.reel-text-reference small {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}

@@ -13,7 +13,7 @@
       <div class="topbar-inner">
         <div class="brand-lockup">
           <div class="brand-mark">OS</div>
-          <div class="title-row"><h1>Social Studio</h1><span class="version-tag">v1.2</span></div>
+          <div class="title-row"><h1>Social Studio</h1><span class="version-tag">v1.3</span></div>
         </div>
         <div class="topbar-actions">
           <span id="apiStatus" class="status-pill demo">Sign in to connect</span>
@@ -161,8 +161,10 @@
                 <h3>Your finished content is ready</h3>
                 <p>Review the finished media Social Studio built for you. Instructions are secondary now.</p>
               </div>
-              <button id="downloadPackageBtn" class="package-btn" type="button">Download all</button>
+              <button id="downloadPackageBtn" class="package-btn" type="button">Prepare package</button>
             </div>
+
+            <p class="share-save-note">On iPhone, Save / Share opens the iPhone share sheet so you can choose Save Image, Save Video, or Save to Files.</p>
 
             <div class="asset-tabs" role="tablist" aria-label="Finished content">
               <button class="asset-tab active" data-asset-tab="feed" type="button">🖼️ Post</button>
@@ -173,29 +175,33 @@
             <article class="asset-card asset-panel active" data-asset-panel="feed">
               <div class="asset-card-head"><div><span>FINISHED FEED ASSET</span><h4>4:5 Instagram / Facebook Post</h4></div><span class="ready-dot">Ready</span></div>
               <div class="asset-frame feed-frame worker-main-frame"><img id="feedAssetPreview" alt="Finished feed post preview" /></div>
-              <div class="finished-actions"><button id="downloadFeedBtn" class="asset-action" type="button">Download post</button><button class="approve-btn" data-approve="feed" type="button">✓ Approve</button></div>
+              <div class="finished-actions"><button id="downloadFeedBtn" class="asset-action" type="button">Save / Share Post</button><button class="approve-btn" data-approve="feed" type="button">✓ Approve</button></div>
             </article>
 
             <article class="asset-card asset-panel" data-asset-panel="story">
               <div class="asset-card-head"><div><span>FINISHED STORY ASSET</span><h4>9:16 Story</h4></div><span class="ready-dot">Ready</span></div>
               <div class="asset-frame story-frame worker-main-frame story-main-frame"><img id="storyAssetPreview" alt="Finished Story preview" /></div>
-              <div class="finished-actions"><button id="downloadStoryBtn" class="asset-action" type="button">Download Story</button><button class="approve-btn" data-approve="story" type="button">✓ Approve</button></div>
+              <div class="finished-actions"><button id="downloadStoryBtn" class="asset-action" type="button">Save / Share Story</button><button class="approve-btn" data-approve="story" type="button">✓ Approve</button></div>
             </article>
 
             <article class="asset-card asset-panel" data-asset-panel="reel">
               <div class="asset-card-head"><div><span>FINISHED REEL</span><h4>Auto-assembled Reel</h4></div><span id="reelReadyBadge" class="ready-dot">Ready</span></div>
               <div id="reelPreview" class="reel-preview worker-reel-preview" aria-label="Reel preview">
                 <img id="reelPreviewImage" alt="Reel scene preview" />
-                <div class="reel-shade"></div>
-                <div class="reel-copy"><div id="reelPreviewHook" class="reel-hook"></div><div id="reelPreviewOverlay" class="reel-overlay"></div></div>
                 <div id="reelProgress" class="reel-progress"></div>
+              </div>
+              <div class="reel-text-reference" aria-label="Suggested Reel text reference">
+                <span>TEXT SUGGESTIONS — REFERENCE ONLY</span>
+                <div id="reelPreviewHook" class="reel-hook"></div>
+                <div id="reelPreviewOverlay" class="reel-overlay"></div>
+                <small>These suggestions are not burned into the exported Reel. Add or adjust your text when you post.</small>
               </div>
               <div class="reel-actions finished-actions">
                 <button id="playReelBtn" class="asset-action secondary-asset" type="button">▶ Play preview</button>
-                <button id="downloadReelBtn" class="asset-action" type="button">Export Reel</button>
+                <button id="downloadReelBtn" class="asset-action" type="button">Render Reel</button>
                 <button class="approve-btn" data-approve="reel" type="button">✓ Approve</button>
               </div>
-              <p class="asset-helper">Built automatically from your uploaded media and the AI plan. If video was uploaded, sampled frames are used for this first Worker Mode version; the original video remains untouched on your device.</p>
+              <p class="asset-helper">Built automatically from your uploaded media and the AI plan. Reel text is kept as reference only, so the exported Reel stays clean for you to add your own text when posting. If video was uploaded, sampled frames are used for this first Worker Mode version; the original video remains untouched on your device.</p>
             </article>
 
             <div id="assetStatus" class="asset-status">Finishing your media…</div>
@@ -300,7 +306,7 @@
           <section id="editedPreviewCard" class="panel preview-card hidden">
             <div class="preview-head">
               <div><span class="view-kicker">READY</span><h3 id="editedPreviewTitle">Adjusted photo</h3></div>
-              <button id="downloadEditedBtn" class="download-btn" type="button">Download</button>
+              <button id="downloadEditedBtn" class="download-btn" type="button">Save / Share</button>
             </div>
             <div class="preview-switch" role="tablist" aria-label="Compare original and edited image">
               <button class="preview-mode-btn" data-preview-mode="original" type="button">Original</button>
