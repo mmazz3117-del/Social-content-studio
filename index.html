@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#12473c" />
   <title>Social Studio</title>
   <link rel="stylesheet" href="styles.css" />
@@ -10,317 +10,286 @@
 <body>
   <div class="app-shell">
     <header class="topbar">
-      <div class="brand-lockup">
-        <div class="brand-mark">OS</div>
-        <div>
-          <div class="eyebrow">CONTENT WORKSPACE</div>
-          <div class="title-row"><h1>Social Studio</h1><span class="version-tag">v1.0</span></div>
+      <div class="topbar-inner">
+        <div class="brand-lockup">
+          <div class="brand-mark">OS</div>
+          <div class="title-row"><h1>Social Studio</h1><span class="version-tag">v1.1</span></div>
         </div>
-      </div>
-      <div class="topbar-actions">
-        <span id="apiStatus" class="status-pill demo">Sign in to connect</span>
-        <span id="userName" class="user-name hidden"></span>
-        <button id="authBtn" class="ghost-btn" type="button">Sign in with Google</button>
-        <button id="profileBtn" class="ghost-btn" type="button">Business profile</button>
+        <div class="topbar-actions">
+          <span id="apiStatus" class="status-pill demo">Sign in to connect</span>
+          <span id="userName" class="user-name hidden"></span>
+          <button id="authBtn" class="top-btn" type="button">Sign in</button>
+          <button id="profileBtn" class="top-btn" type="button">Profile</button>
+        </div>
       </div>
     </header>
 
-    <main class="workspace">
-      <section class="builder-column">
-        <div class="intro-card">
-          <div class="intro-copy">
-            <span class="step-kicker">CREATE</span>
-            <h2>Turn your photos and videos into a full social package faster.</h2>
-            <p>Upload photos or a short video once and generate captions, Reel structure, Story copy, hashtags, visual guidance, overlay text, a ready-made post graphic, and more. One-Tap Create can choose the strongest angle automatically when you do not feel like writing a full prompt.</p>
-            <div class="hero-pills" aria-label="quick feature preview">
-              <span>✍️ Captions</span>
-              <span>🎬 Reel plans</span>
-              <span>✨ Story copy</span>
-              <span>📸 Photo tools</span>
-            </div>
+    <main class="app-main">
+      <!-- CREATE -->
+      <section id="createView" class="app-view active" data-view="create">
+        <div class="view-heading create-heading">
+          <div>
+            <span class="view-kicker">CREATE</span>
+            <h2>What are we creating today?</h2>
+            <p>Add your media, give Social Studio a quick direction, then choose Custom or One-Tap.</p>
           </div>
-          <div class="intro-visual" aria-hidden="true">
-            <div class="visual-card visual-card-a">
-              <strong>Today’s vibe</strong>
-              <span>Warm • Local • Inviting</span>
-            </div>
-            <div class="visual-card visual-card-b">
-              <strong>One upload</strong>
-              <span>Post • Reel • Story • Graphic</span>
-            </div>
-            <div class="visual-orb"></div>
-          </div>
+          <div class="view-icon">✨</div>
         </div>
 
-        <section id="recentProjectsPanel" class="panel recent-projects-panel hidden">
+        <section class="panel panel-upload" id="mediaPanel">
           <div class="panel-heading">
-            <div>
-              <span class="step-number">★</span>
-              <h3>Recent projects</h3>
-            </div>
-            <button id="clearProjectsBtn" class="mini-btn" type="button">Clear</button>
-          </div>
-          <div id="recentProjectsList" class="recent-projects-list"></div>
-        </section>
-
-        <section class="panel panel-upload">
-          <div class="panel-heading">
-            <div>
-              <span class="step-number">01</span>
-              <h3>Add photos or video</h3>
-            </div>
-            <span class="helper">6 images/frames</span>
+            <div><span class="step-number blue">01</span><h3>Add media</h3></div>
+            <span class="helper">Up to 6 images/frames</span>
           </div>
 
-          <label id="dropZone" class="drop-zone" for="photoInput">
-            <input id="photoInput" type="file" accept="image/png,image/jpeg,image/webp,video/*" multiple hidden />
-            <div class="upload-icon">＋</div>
-            <strong>Add photos or 1 video</strong>
-            <span>Videos are sampled into key frames automatically</span>
-          </label>
+          <input id="photoInput" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden />
+          <input id="videoInput" type="file" accept="video/mp4,video/quicktime,video/webm,video/*" hidden />
+
+          <div id="dropZone" class="media-actions" aria-label="Add photos or video">
+            <label class="media-action photo-action" for="photoInput">
+              <span class="media-action-icon">📷</span>
+              <strong>Add Photos</strong>
+              <small>JPG, PNG or WebP</small>
+            </label>
+            <label class="media-action video-action recommended" for="videoInput">
+              <span class="media-action-icon">🎞️</span>
+              <strong>Choose Video</strong>
+              <small>Recommended for best quality</small>
+            </label>
+            <button id="recordVideoBtn" class="media-action record-action" type="button">
+              <span class="media-action-icon">🎥</span>
+              <strong>Record Here</strong>
+              <small>Beta</small>
+            </button>
+          </div>
+          <p class="quality-tip"><strong>Best video quality:</strong> record with the iPhone Camera app first, then tap <em>Choose Video</em>. Browser recording is available as a beta option.</p>
           <div id="photoGrid" class="photo-grid" aria-live="polite"></div>
         </section>
 
         <section class="panel panel-brief">
           <div class="panel-heading">
-            <div>
-              <span class="step-number">02</span>
-              <h3>Tell us what is happening</h3>
+            <div><span class="step-number peach">02</span><h3>What’s happening?</h3></div>
+          </div>
+          <textarea id="description" rows="4" placeholder="Example: New summer teas arrived and I want to let everyone know in a fun, exciting way."></textarea>
+
+          <details id="customizeDetails" class="customize-box">
+            <summary><span>⚙️ Customize</span><small>Format, tone &amp; Reel options</small></summary>
+            <div class="customize-content">
+              <div class="field-grid">
+                <label>
+                  <span>Content type</span>
+                  <select id="contentType">
+                    <option value="Full social package">Full Social Package</option>
+                    <option value="Instagram/Facebook post">Instagram / Facebook Post</option>
+                    <option value="Reel">Reel</option>
+                    <option value="Story">Story</option>
+                    <option value="Product spotlight">Product Spotlight</option>
+                    <option value="Event announcement">Event Announcement</option>
+                    <option value="Educational post">Educational Post</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Tone</span>
+                  <select id="tone">
+                    <option value="warm, polished, local, and inviting">Warm &amp; Inviting</option>
+                    <option value="fun, energetic, and playful">Fun &amp; Playful</option>
+                    <option value="clean, elevated, and elegant">Elegant</option>
+                    <option value="helpful, interesting, and educational">Educational</option>
+                    <option value="exciting and urgent without sounding pushy">Exciting</option>
+                  </select>
+                </label>
+              </div>
+              <div class="chip-row" aria-label="generation preferences">
+                <label class="chip"><input id="includeReel" type="checkbox" checked /> Reel plan</label>
+                <label class="chip"><input id="includeStory" type="checkbox" checked /> Story copy</label>
+                <label class="chip"><input id="includeVisual" type="checkbox" checked /> Photo feedback</label>
+                <label class="chip"><input id="includeHashtags" type="checkbox" checked /> Hashtags</label>
+              </div>
+              <div id="reelModeWrap" class="sub-setting-wrap">
+                <label>
+                  <span>Reel plan style</span>
+                  <select id="reelMode">
+                    <option value="uploaded_only">Use only what I uploaded</option>
+                    <option value="extra_shots_ok">Suggest additional shots I could take</option>
+                  </select>
+                </label>
+                <p class="helper-copy">Use only your uploads, or let Social Studio suggest a few extra shots.</p>
+              </div>
             </div>
-          </div>
-
-          <textarea id="description" rows="6" placeholder="Example: A new shipment of popcorn just arrived. We are also sampling iced teas today. I want this to feel fun and summery, but not too salesy."></textarea>
-
-          <div class="field-grid">
-            <label>
-              <span>Content type</span>
-              <select id="contentType">
-                <option value="Full social package">Full Social Package</option>
-                <option value="Instagram/Facebook post">Instagram / Facebook Post</option>
-                <option value="Reel">Reel</option>
-                <option value="Story">Story</option>
-                <option value="Product spotlight">Product Spotlight</option>
-                <option value="Event announcement">Event Announcement</option>
-                <option value="Educational post">Educational Post</option>
-              </select>
-            </label>
-
-            <label>
-              <span>Tone</span>
-              <select id="tone">
-                <option value="warm, polished, local, and inviting">Warm &amp; Inviting</option>
-                <option value="fun, energetic, and playful">Fun &amp; Playful</option>
-                <option value="clean, elevated, and elegant">Elegant</option>
-                <option value="helpful, interesting, and educational">Educational</option>
-                <option value="exciting and urgent without sounding pushy">Exciting</option>
-              </select>
-            </label>
-          </div>
-
-          <div class="chip-row" aria-label="generation preferences">
-            <label class="chip"><input id="includeReel" type="checkbox" checked /> Reel plan</label>
-            <label class="chip"><input id="includeStory" type="checkbox" checked /> Story copy</label>
-            <label class="chip"><input id="includeVisual" type="checkbox" checked /> Photo feedback</label>
-            <label class="chip"><input id="includeHashtags" type="checkbox" checked /> Hashtags</label>
-          </div>
-
-          <div id="reelModeWrap" class="sub-setting-wrap">
-            <label>
-              <span>Reel plan style</span>
-              <select id="reelMode">
-                <option value="uploaded_only">Use only what I uploaded</option>
-                <option value="extra_shots_ok">Suggest additional shots I could take</option>
-              </select>
-            </label>
-            <p class="helper-copy">Choose whether the Reel plan should stick only to the uploaded assets or suggest a few extra shots you could capture.</p>
-          </div>
+          </details>
         </section>
 
-        <section class="panel compact-panel panel-create">
+        <section class="panel panel-create">
           <div class="panel-heading">
-            <div>
-              <span class="step-number">03</span>
-              <h3>Create content</h3>
-            </div>
+            <div><span class="step-number purple">03</span><h3>Create</h3></div>
           </div>
           <div class="action-grid">
-            <button id="generateBtn" class="primary-btn" type="button">
-              <span id="generateLabel">✨ Create Social Package</span>
-              <span aria-hidden="true">→</span>
-            </button>
-            <button id="oneTapBtn" class="secondary-btn large-secondary" type="button">⚡ One-Tap Create</button>
+            <button id="generateBtn" class="primary-btn" type="button"><span id="generateLabel">✨ Create Social Package</span><span aria-hidden="true">→</span></button>
+            <button id="oneTapBtn" class="secondary-btn one-tap-btn" type="button">⚡ One-Tap Create</button>
           </div>
-          <p class="privacy-note">Photos and sampled video frames are sent only when you press Create. The original video stays on your device; Social Studio sends only the sampled still frames for analysis. The OpenAI key stays in Firebase Secret Manager and is never placed in this site.</p>
+          <p class="privacy-note">Only photos and sampled video frames are sent for analysis. Your original video stays on your device.</p>
         </section>
       </section>
 
-      <aside class="results-column">
-        <div id="emptyState" class="results-empty">
-          <div class="spark">✦</div>
-          <h2>Your content will appear here.</h2>
-          <p>You’ll get a primary caption plus optional Reel, Story, hashtag, post-graphic, and photo guidance.</p>
-          <div class="sample-card">
-            <span>EXAMPLE OUTPUT</span>
-            <strong>New flavors just landed 🌿</strong>
-            <p>A warm, concise caption written in your preferred brand voice.</p>
-          </div>
+      <!-- RESULTS -->
+      <section id="resultsView" class="app-view" data-view="results">
+        <div id="emptyState" class="empty-view-card">
+          <div class="empty-icon">📝</div>
+          <h2>No results yet</h2>
+          <p>Create a social package and your caption, Reel plan and Story will appear here.</p>
+          <button id="goCreateFromEmpty" class="primary-btn compact-primary" type="button">Go to Create</button>
         </div>
 
         <div id="resultsState" class="results-state hidden">
           <div class="results-header">
             <div>
-              <span class="eyebrow">YOUR SOCIAL PACKAGE</span>
+              <span class="view-kicker">YOUR SOCIAL PACKAGE</span>
               <h2 id="resultHeadline">Ready to post</h2>
             </div>
-            <div class="results-header-actions">
-              <button id="detailsToggleBtn" class="ghost-btn" type="button">Expand details</button>
-              <button id="newBtn" class="ghost-btn" type="button">Start new</button>
-            </div>
+            <button id="newBtn" class="small-action-btn" type="button">Start new</button>
           </div>
 
-          <div class="refine-bar">
-            <span class="refine-label">Quick tweaks</span>
+          <details class="quick-tweaks" open>
+            <summary>Quick tweaks</summary>
             <div class="refine-actions">
               <button class="refine-btn" data-refine="shorter" type="button">Shorter</button>
               <button class="refine-btn" data-refine="more_fun" type="button">More Fun</button>
               <button class="refine-btn" data-refine="less_salesy" type="button">Less Salesy</button>
               <button class="refine-btn" data-refine="try_another" type="button">Try Another</button>
             </div>
-          </div>
+          </details>
 
           <div class="tab-bar" role="tablist">
             <button class="tab active" data-tab="caption" type="button"><span>✍️</span> Caption</button>
             <button class="tab" data-tab="reel" type="button"><span>🎬</span> Reel</button>
             <button class="tab" data-tab="story" type="button"><span>✨</span> Story</button>
-            <button class="tab" data-tab="visual" type="button"><span>📸</span> Photo</button>
           </div>
 
           <div class="result-panel" data-panel="caption">
-            <div class="result-card">
-              <div class="result-card-head"><h3>Primary caption</h3><button class="copy-btn" data-copy="caption" type="button">Copy</button></div>
-              <div id="captionOutput" class="formatted-output"></div>
-            </div>
-            <div class="result-card">
-              <div class="result-card-head"><h3>Short alternate</h3><button class="copy-btn" data-copy="alternate" type="button">Copy</button></div>
-              <div id="alternateOutput" class="formatted-output"></div>
-            </div>
-            <div class="result-card">
-              <div class="result-card-head"><h3>Hashtags</h3><button class="copy-btn" data-copy="hashtags" type="button">Copy</button></div>
-              <div id="hashtagsOutput" class="formatted-output hashtags"></div>
-            </div>
-            <div class="result-card">
-              <div class="result-card-head"><h3>Post overlay text</h3><button class="copy-btn" data-copy="postOverlayText" type="button">Copy</button></div>
-              <div id="postOverlayOutput" class="formatted-output"></div>
-            </div>
+            <div class="result-card accent-mint"><div class="result-card-head"><h3>Primary caption</h3><button class="copy-btn" data-copy="caption" type="button">Copy</button></div><div id="captionOutput" class="formatted-output"></div></div>
+            <div class="result-card accent-lavender"><div class="result-card-head"><h3>Short alternate</h3><button class="copy-btn" data-copy="alternate" type="button">Copy</button></div><div id="alternateOutput" class="formatted-output"></div></div>
+            <div class="result-card accent-sky"><div class="result-card-head"><h3>Hashtags</h3><button class="copy-btn" data-copy="hashtags" type="button">Copy</button></div><div id="hashtagsOutput" class="formatted-output hashtags"></div></div>
+            <div class="result-card accent-peach"><div class="result-card-head"><h3>Post overlay text</h3><button class="copy-btn" data-copy="postOverlayText" type="button">Copy</button></div><div id="postOverlayOutput" class="formatted-output"></div></div>
           </div>
 
           <div class="result-panel hidden" data-panel="reel">
-            <div class="result-card">
-              <div class="result-card-head"><h3>Opening hook</h3><button class="copy-btn" data-copy="reelHook" type="button">Copy</button></div>
-              <div id="reelHookOutput" class="formatted-output"></div>
-            </div>
-            <div class="result-card">
-              <div class="result-card-head"><h3>Step-by-step Reel plan</h3></div>
+            <div class="result-card accent-coral"><div class="result-card-head"><h3>Opening hook</h3><button class="copy-btn" data-copy="reelHook" type="button">Copy</button></div><div id="reelHookOutput" class="formatted-output"></div></div>
+            <div class="result-card accent-mint">
+              <div class="result-card-head"><h3>Step-by-step Reel plan</h3><button id="detailsToggleBtn" class="copy-btn" type="button">Expand all</button></div>
               <div id="reelPlanOutput" class="sequence-list"></div>
             </div>
-            <div class="result-card">
-              <div class="result-card-head"><h3>On-screen text</h3><button class="copy-btn" data-copy="overlayText" type="button">Copy</button></div>
-              <div id="overlayOutput" class="formatted-output"></div>
-            </div>
+            <div class="result-card accent-sky"><div class="result-card-head"><h3>On-screen text</h3><button class="copy-btn" data-copy="overlayText" type="button">Copy</button></div><div id="overlayOutput" class="formatted-output"></div></div>
           </div>
 
           <div class="result-panel hidden" data-panel="story">
-            <div class="result-card">
-              <div class="result-card-head"><h3>Story copy</h3><button class="copy-btn" data-copy="story" type="button">Copy</button></div>
-              <div id="storyOutput" class="formatted-output"></div>
-            </div>
-            <div class="result-card">
-              <div class="result-card-head"><h3>Story overlay text</h3><button class="copy-btn" data-copy="storyOverlayText" type="button">Copy</button></div>
-              <div id="storyOverlayOutput" class="formatted-output"></div>
-            </div>
-            <div class="result-card">
-              <div class="result-card-head"><h3>Call to action</h3><button class="copy-btn" data-copy="cta" type="button">Copy</button></div>
-              <div id="ctaOutput" class="formatted-output"></div>
-            </div>
-          </div>
-
-          <div class="result-panel hidden" data-panel="visual">
-            <div class="result-card">
-              <div class="result-card-head"><h3>Best lead image</h3></div>
-              <div id="leadImageOutput" class="formatted-output"></div>
-            </div>
-            <div class="result-card">
-              <div class="result-card-head"><h3>Photo-by-photo notes</h3></div>
-              <div id="visualNotesOutput" class="sequence-list"></div>
-            </div>
-            <div class="result-card">
-              <div class="result-card-head"><h3>Photo tools</h3></div>
-              <div class="photo-tools">
-                <label>
-                  <span>Selected photo</span>
-                  <select id="selectedPhoto"></select>
-                </label>
-                <div class="tool-btn-grid">
-                  <button id="basicEditBtn" class="secondary-btn" type="button">✨ Auto Enhance</button>
-                  <button id="aiCleanupBtn" class="secondary-btn" type="button">🛡️ AI Recommended Edit</button>
-                  <button id="format45Btn" class="secondary-btn" type="button">🖼️ Make 4:5 Post</button>
-                  <button id="format916Btn" class="secondary-btn" type="button">📱 Make 9:16 Story/Reel</button>
-                  <button id="createPostGraphicBtn" class="secondary-btn" type="button">🎨 Create Post Graphic</button>
-                </div>
-                <div class="preserve-badge">✓ Preserve Reality: products, labels &amp; packaging stay from your original photo</div>
-                <p class="helper-copy">Auto Enhance and AI Recommended Edit are non-generative. The AI edit uses the photo feedback above to choose safe crop/light/color improvements without redrawing merchandise. Create Post Graphic turns the chosen image into a simple 4:5 post with your suggested overlay already applied.</p>
-              </div>
-            </div>
-            <div id="editedPreviewCard" class="result-card hidden">
-              <div class="result-card-head"><h3 id="editedPreviewTitle">Adjusted photo</h3><button id="downloadEditedBtn" class="copy-btn" type="button">Download</button></div>
-              <div class="preview-grid">
-                <div>
-                  <span class="preview-label">Original</span>
-                  <img id="originalPreview" class="preview-image" alt="Original selected photo" />
-                </div>
-                <div>
-                  <span class="preview-label">Adjusted</span>
-                  <img id="editedPreview" class="preview-image" alt="Adjusted photo result" />
-                </div>
-              </div>
-              <div id="editSummary" class="edit-summary"></div>
-              <div class="preview-next-actions">
-                <span class="preview-label">Try another version</span>
-                <div class="tool-btn-grid">
-                  <button id="previewBasicBtn" class="secondary-btn" type="button">✨ Auto Enhance</button>
-                  <button id="previewAiBtn" class="secondary-btn" type="button">🛡️ AI Recommended Edit</button>
-                  <button id="preview45Btn" class="secondary-btn" type="button">🖼️ 4:5 Post</button>
-                  <button id="preview916Btn" class="secondary-btn" type="button">📱 9:16 Story/Reel</button>
-                  <button id="previewGraphicBtn" class="secondary-btn" type="button">🎨 Post Graphic</button>
-                </div>
-              </div>
-            </div>
+            <div class="result-card accent-lavender"><div class="result-card-head"><h3>Story copy</h3><button class="copy-btn" data-copy="story" type="button">Copy</button></div><div id="storyOutput" class="formatted-output"></div></div>
+            <div class="result-card accent-rose"><div class="result-card-head"><h3>Story overlay text</h3><button class="copy-btn" data-copy="storyOverlayText" type="button">Copy</button></div><div id="storyOverlayOutput" class="formatted-output"></div></div>
+            <div class="result-card accent-peach"><div class="result-card-head"><h3>Call to action</h3><button class="copy-btn" data-copy="cta" type="button">Copy</button></div><div id="ctaOutput" class="formatted-output"></div></div>
           </div>
         </div>
-      </aside>
+      </section>
+
+      <!-- PROJECTS -->
+      <section id="projectsView" class="app-view" data-view="projects">
+        <div class="view-heading projects-heading">
+          <div><span class="view-kicker">PROJECTS</span><h2>Recent work</h2><p>Jump back into something you already created.</p></div>
+          <div class="view-icon">⭐</div>
+        </div>
+        <section id="recentProjectsPanel" class="panel projects-panel">
+          <div class="panel-heading"><div><h3>Saved in this browser</h3></div><button id="clearProjectsBtn" class="small-action-btn" type="button">Clear</button></div>
+          <div id="recentProjectsList" class="recent-projects-list"></div>
+          <div id="projectsEmpty" class="inline-empty hidden"><span>📁</span><strong>No saved projects yet</strong><p>Your recent projects will appear here after you create them.</p></div>
+        </section>
+      </section>
+
+      <!-- TOOLS -->
+      <section id="toolsView" class="app-view" data-view="tools">
+        <div class="view-heading tools-heading">
+          <div><span class="view-kicker">TOOLS</span><h2>Photo tools</h2><p>Crop, enhance and build finished social graphics without changing your real products.</p></div>
+          <div class="view-icon">📸</div>
+        </div>
+
+        <div id="toolsEmpty" class="empty-view-card">
+          <div class="empty-icon">📷</div>
+          <h2>Add a photo first</h2>
+          <p>Once you add media, your photo tools will be ready here.</p>
+          <button id="goCreateFromTools" class="primary-btn compact-primary" type="button">Go to Create</button>
+        </div>
+
+        <div id="toolsState" class="tools-state hidden">
+          <div id="analysisTools" class="tools-analysis hidden">
+            <div class="result-card accent-sky"><div class="result-card-head"><h3>Best lead image</h3></div><div id="leadImageOutput" class="formatted-output"></div></div>
+            <div class="result-card accent-mint"><div class="result-card-head"><h3>Photo feedback</h3></div><div id="visualNotesOutput" class="sequence-list"></div></div>
+          </div>
+
+          <section class="panel photo-tools-card">
+            <div class="panel-heading"><div><h3>Edit a photo</h3></div><span class="preserve-pill">✓ Preserve Reality</span></div>
+            <label><span>Selected photo</span><select id="selectedPhoto"></select></label>
+            <div class="tool-btn-grid">
+              <button id="basicEditBtn" class="tool-button" type="button"><span>✨</span><strong>Auto Enhance</strong><small>Light, color &amp; safe crop</small></button>
+              <button id="aiCleanupBtn" class="tool-button" type="button"><span>🛡️</span><strong>AI Recommended Edit</strong><small>Uses the photo feedback</small></button>
+              <button id="format45Btn" class="tool-button" type="button"><span>🖼️</span><strong>Make 4:5 Post</strong><small>Instagram/Facebook feed</small></button>
+              <button id="format916Btn" class="tool-button" type="button"><span>📱</span><strong>Make 9:16 Story/Reel</strong><small>Vertical social format</small></button>
+              <button id="createPostGraphicBtn" class="tool-button wide-tool" type="button"><span>🎨</span><strong>Create Post Graphic</strong><small>Adds your suggested overlay text</small></button>
+            </div>
+            <p class="helper-copy preserve-copy">These edits use your original pixels. Products, labels, packaging, logos and shelf contents are not regenerated.</p>
+          </section>
+
+          <section id="editedPreviewCard" class="panel preview-card hidden">
+            <div class="preview-head">
+              <div><span class="view-kicker">READY</span><h3 id="editedPreviewTitle">Adjusted photo</h3></div>
+              <button id="downloadEditedBtn" class="download-btn" type="button">Download</button>
+            </div>
+            <div class="preview-switch" role="tablist" aria-label="Compare original and edited image">
+              <button class="preview-mode-btn" data-preview-mode="original" type="button">Original</button>
+              <button class="preview-mode-btn active" data-preview-mode="edited" type="button">Edited</button>
+            </div>
+            <img id="previewDisplayImage" class="preview-display-image" alt="Photo preview" />
+            <div id="editSummary" class="edit-summary"></div>
+            <details class="try-another-box">
+              <summary>Try another version</summary>
+              <div class="compact-tool-grid">
+                <button id="previewBasicBtn" class="small-tool-btn" type="button">✨ Enhance</button>
+                <button id="previewAiBtn" class="small-tool-btn" type="button">🛡️ AI Edit</button>
+                <button id="preview45Btn" class="small-tool-btn" type="button">🖼️ 4:5</button>
+                <button id="preview916Btn" class="small-tool-btn" type="button">📱 9:16</button>
+                <button id="previewGraphicBtn" class="small-tool-btn" type="button">🎨 Graphic</button>
+              </div>
+            </details>
+          </section>
+        </div>
+      </section>
     </main>
+
+    <nav class="bottom-nav" aria-label="Main navigation">
+      <button class="bottom-nav-btn active" data-view-target="create" type="button"><span class="nav-icon">➕</span><span>Create</span></button>
+      <button class="bottom-nav-btn" data-view-target="results" type="button"><span class="nav-icon">📝</span><span>Results</span></button>
+      <button class="bottom-nav-btn" data-view-target="projects" type="button"><span class="nav-icon">⭐</span><span>Projects</span></button>
+      <button class="bottom-nav-btn" data-view-target="tools" type="button"><span class="nav-icon">📸</span><span>Tools</span></button>
+    </nav>
   </div>
 
   <div id="authNotice" class="auth-notice hidden" role="status" aria-live="polite"></div>
 
   <dialog id="profileDialog" class="profile-dialog">
     <form method="dialog" class="dialog-card" id="profileForm">
-      <div class="dialog-head">
-        <div>
-          <span class="eyebrow">BRAND MEMORY</span>
-          <h2>Business profile</h2>
-        </div>
-        <button class="close-btn" value="cancel" aria-label="Close" type="submit">×</button>
-      </div>
-      <p>These details stay in this browser and are automatically included with each generation.</p>
+      <div class="dialog-head"><div><span class="view-kicker">BRAND MEMORY</span><h2>Business profile</h2></div><button class="close-btn" value="cancel" aria-label="Close" type="submit">×</button></div>
+      <p>These details stay in this browser and are included with each generation.</p>
       <label><span>Business name</span><input id="businessName" value="Ocean State Spice & Tea Merchants" /></label>
       <label><span>Location</span><input id="businessLocation" value="Wayland Square, Providence, Rhode Island" /></label>
       <label><span>Brand voice</span><textarea id="brandVoice" rows="4">Warm, polished, knowledgeable, local, inviting, and never overly salesy. Keep the writing natural rather than generic or overhyped.</textarea></label>
       <label><span>Default details / hashtags</span><textarea id="brandDefaults" rows="4">Use Ocean State Spice & Tea Merchants by name when useful. Preferred local tags include #OceanStateSpiceAndTea #WaylandSquare #ProvidenceRI #ShopLocalRI. Avoid cluttering posts with too many hashtags.</textarea></label>
-      <div class="dialog-actions">
-        <button id="saveProfileBtn" class="primary-btn" value="default" type="button">Save profile</button>
-      </div>
+      <div class="dialog-actions"><button id="saveProfileBtn" class="primary-btn" value="default" type="button">Save profile</button></div>
     </form>
+  </dialog>
+
+  <dialog id="cameraDialog" class="camera-dialog">
+    <div class="camera-card">
+      <div class="camera-head"><div><span class="view-kicker">BETA</span><h2>Record video</h2></div><button id="closeCameraBtn" class="close-btn" type="button" aria-label="Close camera">×</button></div>
+      <div class="camera-stage"><video id="cameraPreview" autoplay muted playsinline></video><div id="cameraStatus" class="camera-status">Opening rear camera…</div></div>
+      <p class="camera-tip">We request the rear camera, high resolution and the widest available zoom. If the preview still looks soft or zoomed, use the iPhone Camera app and then choose the video instead.</p>
+      <div class="camera-actions"><button id="startRecordingBtn" class="primary-btn" type="button">● Start Recording</button><button id="stopRecordingBtn" class="primary-btn recording-stop hidden" type="button">■ Stop &amp; Use Video</button></div>
+    </div>
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>

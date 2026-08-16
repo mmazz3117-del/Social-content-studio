@@ -14,7 +14,7 @@ const MAX_IMAGES = 6;
 const MAX_VIDEOS = 1;
 const VIDEO_FRAME_COUNT = 3;
 const MAX_TOTAL_IMAGE_CHARS = 12_000_000;
-const PROJECTS_STORAGE_KEY = 'socialStudioRecentProjectsV10';
+const PROJECTS_STORAGE_KEY = 'socialStudioRecentProjectsV11';
 const MAX_RECENT_PROJECTS = 8;
 
 const REFINE_INSTRUCTIONS = {
@@ -33,12 +33,16 @@ const state = {
   selectedPhotoIndex: 0,
   editedPhotoDataUrl: '',
   editedPhotoLabel: '',
+  originalPreviewDataUrl: '',
+  previewMode: 'edited',
   recentProjects: [],
   videoSource: null,
+  activeView: 'create',
 };
 
 const els = {
   photoInput: document.getElementById('photoInput'),
+  videoInput: document.getElementById('videoInput'),
   dropZone: document.getElementById('dropZone'),
   photoGrid: document.getElementById('photoGrid'),
   description: document.getElementById('description'),
@@ -77,8 +81,7 @@ const els = {
   createPostGraphicBtn: document.getElementById('createPostGraphicBtn'),
   editedPreviewCard: document.getElementById('editedPreviewCard'),
   editedPreviewTitle: document.getElementById('editedPreviewTitle'),
-  originalPreview: document.getElementById('originalPreview'),
-  editedPreview: document.getElementById('editedPreview'),
+  previewDisplayImage: document.getElementById('previewDisplayImage'),
   downloadEditedBtn: document.getElementById('downloadEditedBtn'),
   editSummary: document.getElementById('editSummary'),
   previewBasicBtn: document.getElementById('previewBasicBtn'),
@@ -86,10 +89,26 @@ const els = {
   preview45Btn: document.getElementById('preview45Btn'),
   preview916Btn: document.getElementById('preview916Btn'),
   previewGraphicBtn: document.getElementById('previewGraphicBtn'),
+  previewModeBtns: [...document.querySelectorAll('.preview-mode-btn')],
   recentProjectsPanel: document.getElementById('recentProjectsPanel'),
   recentProjectsList: document.getElementById('recentProjectsList'),
+  projectsEmpty: document.getElementById('projectsEmpty'),
   clearProjectsBtn: document.getElementById('clearProjectsBtn'),
   detailsToggleBtn: document.getElementById('detailsToggleBtn'),
+  toolsEmpty: document.getElementById('toolsEmpty'),
+  toolsState: document.getElementById('toolsState'),
+  analysisTools: document.getElementById('analysisTools'),
+  goCreateFromEmpty: document.getElementById('goCreateFromEmpty'),
+  goCreateFromTools: document.getElementById('goCreateFromTools'),
+  bottomNavBtns: [...document.querySelectorAll('.bottom-nav-btn')],
+  appViews: [...document.querySelectorAll('.app-view')],
+  recordVideoBtn: document.getElementById('recordVideoBtn'),
+  cameraDialog: document.getElementById('cameraDialog'),
+  cameraPreview: document.getElementById('cameraPreview'),
+  cameraStatus: document.getElementById('cameraStatus'),
+  closeCameraBtn: document.getElementById('closeCameraBtn'),
+  startRecordingBtn: document.getElementById('startRecordingBtn'),
+  stopRecordingBtn: document.getElementById('stopRecordingBtn'),
 };
 
 const defaultProfile = {
@@ -104,12 +123,16 @@ let functions;
 let googleProvider;
 let generateSocialPackage;
 let editSocialPhoto;
+let cameraStream = null;
+let mediaRecorder = null;
+let recordedChunks = [];
+let discardRecording = false;
 
 function showToast(message) {
   els.toast.textContent = message;
   els.toast.classList.add('show');
   clearTimeout(showToast.timer);
-  showToast.timer = setTimeout(() => els.toast.classList.remove('show'), 2200);
+  showToast.timer = setTimeout(() => els.toast.classList.remove('show'), 2400);
 }
 
 function showAuthNotice(message) {
@@ -117,6 +140,10 @@ function showAuthNotice(message) {
   els.authNotice.classList.remove('hidden');
   clearTimeout(showAuthNotice.timer);
   showAuthNotice.timer = setTimeout(() => els.authNotice.classList.add('hidden'), 6500);
+}
+
+function escapeHtml(text) {
+  return String(text).replace(/[&<>'"]/g, (c) => ({'&': '&amp;','<': '&lt;','>': '&gt;',"'": '&#39;','"': '&quot;'}[c]));
 }
 
 function formatDateTime(ts) {
@@ -127,21 +154,15 @@ function formatDateTime(ts) {
   }
 }
 
-function escapeHtml(text) {
-  return String(text).replace(/[&<>'"]/g, (c) => ({'&': '&amp;','<': '&lt;','>': '&gt;',"'": '&#39;','"': '&quot;'}[c]));
-}
-
 function loadProfile() {
   let profile = defaultProfile;
   try {
     profile = {...defaultProfile, ...JSON.parse(localStorage.getItem('socialStudioProfile') || '{}')};
   } catch {}
-
   els.businessName.value = profile.businessName;
   els.businessLocation.value = profile.businessLocation;
   els.brandVoice.value = profile.brandVoice;
   els.brandDefaults.value = profile.brandDefaults;
-  return profile;
 }
 
 function getProfile() {
@@ -161,7 +182,6 @@ function initFirebase() {
     googleProvider = new firebase.auth.GoogleAuthProvider();
     generateSocialPackage = functions.httpsCallable(FUNCTION_NAME);
     editSocialPhoto = functions.httpsCallable(PHOTO_EDIT_FUNCTION);
-
     auth.onAuthStateChanged((user) => {
       state.user = user || null;
       state.authReady = true;
@@ -171,7 +191,7 @@ function initFirebase() {
     console.error('Firebase initialization failed', error);
     els.apiStatus.textContent = 'Firebase unavailable';
     els.apiStatus.className = 'status-pill demo';
-    showAuthNotice('Firebase could not initialize. Check the browser console for details.');
+    showAuthNotice('Firebase could not initialize.');
   }
 }
 
@@ -179,13 +199,11 @@ function renderAuthState() {
   if (!state.user) {
     els.apiStatus.textContent = 'Sign in to connect';
     els.apiStatus.className = 'status-pill demo';
-    els.authBtn.textContent = 'Sign in with Google';
+    els.authBtn.textContent = 'Sign in';
     els.userName.classList.add('hidden');
-    els.userName.textContent = '';
     return;
   }
-
-  els.apiStatus.textContent = 'Firebase AI ready';
+  els.apiStatus.textContent = 'AI ready';
   els.apiStatus.className = 'status-pill live';
   els.authBtn.textContent = 'Sign out';
   els.userName.textContent = state.user.displayName || state.user.email || 'Signed in';
@@ -209,6 +227,35 @@ async function signIn() {
   }
 }
 
+function activateView(viewName, {scroll = true} = {}) {
+  state.activeView = viewName;
+  els.appViews.forEach((view) => view.classList.toggle('active', view.dataset.view === viewName));
+  els.bottomNavBtns.forEach((btn) => btn.classList.toggle('active', btn.dataset.viewTarget === viewName));
+  if (viewName === 'tools') renderToolsState();
+  if (viewName === 'projects') renderRecentProjects();
+  if (scroll) window.scrollTo({top: 0, behavior: 'smooth'});
+}
+
+els.bottomNavBtns.forEach((btn) => btn.addEventListener('click', () => activateView(btn.dataset.viewTarget)));
+els.goCreateFromEmpty.addEventListener('click', () => activateView('create'));
+els.goCreateFromTools.addEventListener('click', () => activateView('create'));
+
+els.authBtn.addEventListener('click', async () => {
+  if (!auth) return;
+  if (state.user) {
+    await auth.signOut();
+    showToast('Signed out');
+  } else {
+    await signIn();
+  }
+});
+els.profileBtn.addEventListener('click', () => els.profileDialog.showModal());
+els.saveProfileBtn.addEventListener('click', () => {
+  localStorage.setItem('socialStudioProfile', JSON.stringify(getProfile()));
+  els.profileDialog.close();
+  showToast('Business profile saved');
+});
+
 function updateReelModeVisibility() {
   els.reelModeWrap.classList.toggle('hidden', !els.includeReel.checked);
 }
@@ -222,45 +269,30 @@ function setOneTapDefaults() {
   updateReelModeVisibility();
 }
 
-els.authBtn.addEventListener('click', async () => {
-  if (!auth) return;
-  if (state.user) {
-    await auth.signOut();
-    showToast('Signed out');
-  } else {
-    await signIn();
-  }
-});
-
-els.profileBtn.addEventListener('click', () => els.profileDialog.showModal());
-els.saveProfileBtn.addEventListener('click', () => {
-  localStorage.setItem('socialStudioProfile', JSON.stringify(getProfile()));
-  els.profileDialog.close();
-  showToast('Business profile saved');
-});
-
+els.includeReel.addEventListener('change', updateReelModeVisibility);
 els.photoInput.addEventListener('change', (event) => addFiles([...event.target.files]));
+els.videoInput.addEventListener('change', (event) => addFiles([...event.target.files]));
+
 ['dragenter', 'dragover'].forEach((type) => {
-  els.dropZone.addEventListener(type, (e) => {
-    e.preventDefault();
+  els.dropZone.addEventListener(type, (event) => {
+    event.preventDefault();
     els.dropZone.classList.add('dragging');
   });
 });
 ['dragleave', 'drop'].forEach((type) => {
-  els.dropZone.addEventListener(type, (e) => {
-    e.preventDefault();
+  els.dropZone.addEventListener(type, (event) => {
+    event.preventDefault();
     els.dropZone.classList.remove('dragging');
   });
 });
-els.dropZone.addEventListener('drop', (e) => addFiles([...e.dataTransfer.files]));
-els.includeReel.addEventListener('change', updateReelModeVisibility);
+els.dropZone.addEventListener('drop', (event) => addFiles([...event.dataTransfer.files]));
 
 async function addFiles(files) {
-  const images = files.filter((f) => /^image\/(jpeg|png|webp)$/.test(f.type));
-  const videos = files.filter((f) => String(f.type || '').startsWith('video/'));
+  const images = files.filter((file) => /^image\/(jpeg|png|webp)$/.test(file.type));
+  const videos = files.filter((file) => String(file.type || '').startsWith('video/'));
 
   if (videos.length > MAX_VIDEOS || (videos.length && state.videoSource)) {
-    showToast('Social Studio currently supports one video per project');
+    showToast('One video per project for now');
   }
 
   const slots = () => Math.max(0, MAX_IMAGES - state.photos.length);
@@ -278,7 +310,7 @@ async function addFiles(files) {
   if (videos.length && !state.videoSource && slots()) {
     const file = videos[0];
     try {
-      showToast('Analyzing video frames…');
+      showToast('Sampling useful video frames…');
       const extracted = await extractVideoFrames(file, Math.min(VIDEO_FRAME_COUNT, slots()));
       extracted.frames.forEach((frame, index) => {
         state.photos.push({
@@ -289,27 +321,22 @@ async function addFiles(files) {
           videoTime: frame.time,
         });
       });
-      state.videoSource = {
-        name: file.name,
-        duration: extracted.duration,
-        frameCount: extracted.frames.length,
-      };
-      showToast(`Video ready — ${extracted.frames.length} key frames sampled`);
+      state.videoSource = {name: file.name, duration: extracted.duration, frameCount: extracted.frames.length};
+      showToast(`Video ready — ${extracted.frames.length} frames sampled`);
     } catch (error) {
       console.error(error);
-      showAuthNotice('That video could not be sampled. Try an MP4, MOV, or WebM clip.');
+      showAuthNotice('That video could not be sampled. Try a different MP4 or MOV clip.');
     }
   }
 
-  if (!images.length && !videos.length) {
-    showToast('Choose a JPG, PNG, WebP, MP4, MOV, or WebM file');
-  } else if (!slots() && (images.length + videos.length) > 0) {
-    showToast(`Maximum of ${MAX_IMAGES} photos/video frames`);
-  }
+  if (!images.length && !videos.length) showToast('Choose a photo or video file');
+  if (!slots() && images.length + videos.length > 0) showToast(`Maximum of ${MAX_IMAGES} images/video frames`);
 
   renderPhotos();
   refreshSelectedPhotoOptions();
+  renderToolsState();
   els.photoInput.value = '';
+  els.videoInput.value = '';
 }
 
 function waitForMediaEvent(target, eventName) {
@@ -318,14 +345,8 @@ function waitForMediaEvent(target, eventName) {
       cleanup();
       reject(new Error(`Timed out waiting for ${eventName}`));
     }, 12000);
-    const onEvent = () => {
-      cleanup();
-      resolve();
-    };
-    const onError = () => {
-      cleanup();
-      reject(target.error || new Error(`Media error before ${eventName}`));
-    };
+    const onEvent = () => { cleanup(); resolve(); };
+    const onError = () => { cleanup(); reject(target.error || new Error(`Media error before ${eventName}`)); };
     const cleanup = () => {
       clearTimeout(timeout);
       target.removeEventListener(eventName, onEvent);
@@ -343,25 +364,19 @@ async function extractVideoFrames(file, frameCount = VIDEO_FRAME_COUNT) {
   video.preload = 'auto';
   const objectUrl = URL.createObjectURL(file);
   video.src = objectUrl;
-
   try {
     if (video.readyState < 1) await waitForMediaEvent(video, 'loadedmetadata');
     if (video.readyState < 2) await waitForMediaEvent(video, 'loadeddata');
-
     const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 1;
     const safeCount = Math.max(1, Math.min(VIDEO_FRAME_COUNT, Number(frameCount) || 1));
-    const positions = safeCount === 1
-      ? [0.5]
-      : Array.from({length: safeCount}, (_, index) => 0.12 + ((0.76 * index) / (safeCount - 1)));
+    const positions = safeCount === 1 ? [0.5] : Array.from({length: safeCount}, (_, i) => 0.12 + ((0.76 * i) / (safeCount - 1)));
     const frames = [];
-
     for (const ratio of positions) {
       const target = Math.min(Math.max(0, duration * ratio), Math.max(0, duration - 0.05));
       if (Math.abs(video.currentTime - target) > 0.02) {
         video.currentTime = target;
         await waitForMediaEvent(video, 'seeked');
       }
-
       const maxSide = 1400;
       const sourceWidth = video.videoWidth || 1280;
       const sourceHeight = video.videoHeight || 720;
@@ -369,11 +384,9 @@ async function extractVideoFrames(file, frameCount = VIDEO_FRAME_COUNT) {
       const canvas = document.createElement('canvas');
       canvas.width = Math.max(1, Math.round(sourceWidth * scale));
       canvas.height = Math.max(1, Math.round(sourceHeight * scale));
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      frames.push({time: target, dataUrl: canvas.toDataURL('image/jpeg', .82)});
+      canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+      frames.push({time: target, dataUrl: canvas.toDataURL('image/jpeg', .84)});
     }
-
     return {duration, frames};
   } finally {
     URL.revokeObjectURL(objectUrl);
@@ -396,9 +409,8 @@ function optimizeImage(file) {
         const canvas = document.createElement('canvas');
         canvas.width = width;
         canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', .82));
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', .84));
       };
       img.src = reader.result;
     };
@@ -407,30 +419,164 @@ function optimizeImage(file) {
 }
 
 function renderPhotos() {
-  els.photoGrid.innerHTML = state.photos.map((photo, i) => {
+  let photoNumber = 0;
+  let videoFrameNumber = 0;
+  els.photoGrid.innerHTML = state.photos.map((photo, index) => {
     const isVideo = photo.sourceType === 'videoFrame';
-    const badge = isVideo ? `VIDEO F${state.photos.slice(0, i + 1).filter((p) => p.sourceType === 'videoFrame').length}` : `PHOTO ${i + 1}`;
+    if (isVideo) videoFrameNumber += 1;
+    else photoNumber += 1;
+    const badge = isVideo ? `VIDEO F${videoFrameNumber}` : `PHOTO ${photoNumber}`;
     const time = isVideo && Number.isFinite(photo.videoTime) ? `<span class="video-time">${photo.videoTime.toFixed(1)}s</span>` : '';
-    return `
-    <div class="photo-item">
-      <img src="${photo.dataUrl}" alt="${isVideo ? 'Video frame' : 'Photo'} ${i + 1}" />
-      <span class="photo-badge">${badge}</span>
-      ${time}
-      <button class="photo-remove" type="button" data-index="${i}" aria-label="Remove media ${i + 1}">×</button>
+    return `<div class="photo-item">
+      <img src="${photo.dataUrl}" alt="${isVideo ? 'Video frame' : 'Photo'} ${index + 1}" />
+      <span class="photo-badge">${badge}</span>${time}
+      <button class="photo-remove" type="button" data-index="${index}" aria-label="Remove media ${index + 1}">×</button>
     </div>`;
   }).join('');
 
   els.photoGrid.querySelectorAll('.photo-remove').forEach((btn) => {
     btn.addEventListener('click', () => {
       state.photos.splice(Number(btn.dataset.index), 1);
-      if (!state.photos.some((p) => p.sourceType === 'videoFrame')) state.videoSource = null;
+      if (!state.photos.some((photo) => photo.sourceType === 'videoFrame')) state.videoSource = null;
       state.selectedPhotoIndex = Math.min(state.selectedPhotoIndex, Math.max(0, state.photos.length - 1));
       clearEditedPreview();
       renderPhotos();
       refreshSelectedPhotoOptions();
+      renderToolsState();
     });
   });
 }
+
+// In-app video recorder (beta). Choosing an existing video remains the recommended path.
+async function openCameraRecorder() {
+  if (state.videoSource) {
+    showToast('This project already has a video');
+    return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+    showAuthNotice('Browser recording is not supported here. Record in the Camera app and use Choose Video instead.');
+    return;
+  }
+
+  discardRecording = false;
+  els.cameraStatus.textContent = 'Opening rear camera…';
+  els.startRecordingBtn.classList.remove('hidden');
+  els.stopRecordingBtn.classList.add('hidden');
+  els.cameraDialog.showModal();
+
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: {ideal: 'environment'},
+        width: {ideal: 1920},
+        height: {ideal: 1080},
+        frameRate: {ideal: 30, max: 30},
+        aspectRatio: {ideal: 16 / 9},
+      },
+      audio: true,
+    });
+    els.cameraPreview.srcObject = cameraStream;
+    await els.cameraPreview.play().catch(() => {});
+
+    const videoTrack = cameraStream.getVideoTracks()[0];
+    try {
+      const capabilities = videoTrack.getCapabilities?.() || {};
+      if (capabilities.zoom && Number.isFinite(capabilities.zoom.min)) {
+        await videoTrack.applyConstraints({advanced: [{zoom: capabilities.zoom.min}]});
+      }
+    } catch (constraintError) {
+      console.info('Camera zoom constraint not available', constraintError);
+    }
+    els.cameraStatus.textContent = 'Rear camera ready • hold the phone steady';
+  } catch (error) {
+    console.error(error);
+    els.cameraStatus.textContent = 'Could not open the camera';
+    showAuthNotice('Camera access was unavailable. Use Choose Video after recording with the iPhone Camera app.');
+  }
+}
+
+function stopCameraTracks() {
+  if (cameraStream) cameraStream.getTracks().forEach((track) => track.stop());
+  cameraStream = null;
+  els.cameraPreview.srcObject = null;
+}
+
+function closeCameraRecorder({discard = true} = {}) {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    discardRecording = discard;
+    try { mediaRecorder.stop(); } catch {}
+  }
+  stopCameraTracks();
+  if (els.cameraDialog.open) els.cameraDialog.close();
+}
+
+function preferredRecordingMime() {
+  const candidates = [
+    'video/mp4;codecs=h264,aac',
+    'video/mp4',
+    'video/webm;codecs=vp8,opus',
+    'video/webm',
+  ];
+  return candidates.find((type) => MediaRecorder.isTypeSupported?.(type)) || '';
+}
+
+async function startBrowserRecording() {
+  if (!cameraStream) {
+    showToast('Camera is still opening');
+    return;
+  }
+  const mimeType = preferredRecordingMime();
+  recordedChunks = [];
+  discardRecording = false;
+  try {
+    mediaRecorder = new MediaRecorder(cameraStream, {
+      ...(mimeType ? {mimeType} : {}),
+      videoBitsPerSecond: 10_000_000,
+    });
+  } catch {
+    mediaRecorder = new MediaRecorder(cameraStream);
+  }
+
+  mediaRecorder.addEventListener('dataavailable', (event) => {
+    if (event.data?.size) recordedChunks.push(event.data);
+  });
+  mediaRecorder.addEventListener('stop', async () => {
+    const shouldDiscard = discardRecording;
+    const type = mediaRecorder?.mimeType || mimeType || 'video/mp4';
+    mediaRecorder = null;
+    els.startRecordingBtn.classList.remove('hidden');
+    els.stopRecordingBtn.classList.add('hidden');
+    if (shouldDiscard || !recordedChunks.length) return;
+
+    const blob = new Blob(recordedChunks, {type});
+    const extension = type.includes('webm') ? 'webm' : 'mp4';
+    const file = new File([blob], `social-studio-recording-${Date.now()}.${extension}`, {type});
+    stopCameraTracks();
+    if (els.cameraDialog.open) els.cameraDialog.close();
+    await addFiles([file]);
+  });
+  mediaRecorder.start(1000);
+  els.cameraStatus.textContent = 'Recording… move slowly and keep the phone steady';
+  els.startRecordingBtn.classList.add('hidden');
+  els.stopRecordingBtn.classList.remove('hidden');
+}
+
+els.recordVideoBtn.addEventListener('click', openCameraRecorder);
+els.closeCameraBtn.addEventListener('click', () => closeCameraRecorder({discard: true}));
+els.startRecordingBtn.addEventListener('click', startBrowserRecording);
+els.stopRecordingBtn.addEventListener('click', () => {
+  if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+  discardRecording = false;
+  els.cameraStatus.textContent = 'Finishing video…';
+  mediaRecorder.stop();
+});
+els.cameraDialog.addEventListener('cancel', (event) => {
+  event.preventDefault();
+  closeCameraRecorder({discard: true});
+});
+els.cameraDialog.addEventListener('close', () => {
+  if (cameraStream) stopCameraTracks();
+});
 
 function setPackageLoading(isLoading, label = '✨ Create Social Package') {
   state.isLoading = isLoading;
@@ -443,17 +589,17 @@ function setPackageLoading(isLoading, label = '✨ Create Social Package') {
 function setActivePhotoButton(button, isLoading, loadingText = 'Working…') {
   if (!button) return;
   if (isLoading) {
-    button.dataset.originalText = button.textContent;
+    button.dataset.originalText = button.innerHTML;
     button.textContent = loadingText;
     button.disabled = true;
   } else {
-    button.textContent = button.dataset.originalText || button.textContent;
+    button.innerHTML = button.dataset.originalText || button.innerHTML;
     button.disabled = false;
   }
 }
 
 function buildPayload(action = 'generate', refineInstruction = '', extras = {}) {
-  const videoFrames = state.photos.filter((p) => p.sourceType === 'videoFrame');
+  const videoFrames = state.photos.filter((photo) => photo.sourceType === 'videoFrame');
   return {
     action,
     oneTap: Boolean(extras.oneTap),
@@ -468,17 +614,17 @@ function buildPayload(action = 'generate', refineInstruction = '', extras = {}) 
       reelMode: els.reelMode.value,
     },
     profile: getProfile(),
-    images: state.photos.map((p) => p.dataUrl),
-    mediaManifest: state.photos.map((p, index) => ({
+    images: state.photos.map((photo) => photo.dataUrl),
+    mediaManifest: state.photos.map((photo, index) => ({
       imageNumber: index + 1,
-      sourceType: p.sourceType === 'videoFrame' ? 'videoFrame' : 'photo',
-      name: p.name || '',
-      videoTime: Number.isFinite(p.videoTime) ? Number(p.videoTime.toFixed(2)) : null,
+      sourceType: photo.sourceType === 'videoFrame' ? 'videoFrame' : 'photo',
+      name: photo.name || '',
+      videoTime: Number.isFinite(photo.videoTime) ? Number(photo.videoTime.toFixed(2)) : null,
     })),
     videoContext: state.videoSource ? {
       ...state.videoSource,
       frameCount: videoFrames.length,
-      frameTimes: videoFrames.map((p) => Number(p.videoTime || 0).toFixed(1)),
+      frameTimes: videoFrames.map((photo) => Number(photo.videoTime || 0).toFixed(1)),
     } : null,
     currentResult: action === 'refine' ? state.result : undefined,
     refineInstruction: action === 'refine' ? refineInstruction : undefined,
@@ -487,38 +633,32 @@ function buildPayload(action = 'generate', refineInstruction = '', extras = {}) 
 
 async function runPackageRequest(action = 'generate', refineInstruction = '', extras = {}) {
   const description = els.description.value.trim();
-  const totalChars = state.photos.reduce((sum, p) => sum + p.dataUrl.length, 0);
+  const totalChars = state.photos.reduce((sum, photo) => sum + photo.dataUrl.length, 0);
 
   if (action === 'generate' && !description && !state.photos.length) {
-    showToast('Add a photo or tell me what the post is about');
-    els.description.focus();
+    showToast('Add a photo/video or tell me what the post is about');
+    activateView('create');
     return;
   }
-
   if (action === 'refine' && !state.result) {
     showToast('Create a package first');
     return;
   }
-
   if (!state.authReady) {
     showToast('Connecting to Firebase…');
     return;
   }
-
   if (!state.user) {
-    showAuthNotice('Sign in with Google first, then press Create Social Package.');
+    showAuthNotice('Sign in with Google first, then create your package.');
     await signIn();
     return;
   }
-
   if (totalChars > MAX_TOTAL_IMAGE_CHARS) {
-    showToast('Those photos are still too large together. Remove one or two and try again.');
+    showToast('Those images are too large together. Remove one or two and try again.');
     return;
   }
 
-  const loadingLabel = extras.oneTap ? 'One-Tap Create is building your package…' :
-    action === 'generate' ? 'Creating your social package…' : 'Refining your package…';
-
+  const loadingLabel = extras.oneTap ? 'One-Tap is creating…' : action === 'generate' ? 'Creating your package…' : 'Refining your package…';
   setPackageLoading(true, loadingLabel);
   try {
     const response = await generateSocialPackage(buildPayload(action, refineInstruction, extras));
@@ -528,20 +668,15 @@ async function runPackageRequest(action = 'generate', refineInstruction = '', ex
     clearEditedPreview();
     renderResult(data.result);
     await saveCurrentProject();
-    els.apiStatus.textContent = 'Firebase AI ready';
+    els.apiStatus.textContent = 'AI ready';
     els.apiStatus.className = 'status-pill live';
   } catch (error) {
     console.error(error);
     const code = String(error?.code || '');
-    if (code.includes('unauthenticated')) {
-      showAuthNotice('Your sign-in expired. Sign in again and retry.');
-    } else if (code.includes('resource-exhausted')) {
-      showAuthNotice('The social-content limit was reached. Try again a little later.');
-    } else if (code.includes('invalid-argument')) {
-      showAuthNotice(error?.message || 'Please check the information and photos and try again.');
-    } else {
-      showAuthNotice(error?.message || 'The AI request could not be completed.');
-    }
+    if (code.includes('unauthenticated')) showAuthNotice('Your sign-in expired. Sign in again and retry.');
+    else if (code.includes('resource-exhausted')) showAuthNotice('The social-content limit was reached. Try again a little later.');
+    else if (code.includes('invalid-argument')) showAuthNotice(error?.message || 'Please check the information and media and try again.');
+    else showAuthNotice(error?.message || 'The AI request could not be completed.');
   } finally {
     setPackageLoading(false);
   }
@@ -550,23 +685,16 @@ async function runPackageRequest(action = 'generate', refineInstruction = '', ex
 els.generateBtn.addEventListener('click', () => runPackageRequest('generate'));
 els.oneTapBtn.addEventListener('click', () => {
   setOneTapDefaults();
-  if (!els.description.value.trim() && state.photos.length) {
-    showToast('One-Tap Create will choose the strongest angle from your photos.');
-  }
+  if (!els.description.value.trim() && state.photos.length) showToast('One-Tap will choose the strongest angle.');
   runPackageRequest('generate', '', {oneTap: true});
 });
-
-els.refineBtns.forEach((btn) => {
-  btn.addEventListener('click', () => {
-    const key = btn.dataset.refine;
-    const instruction = REFINE_INSTRUCTIONS[key];
-    if (!instruction) return;
-    runPackageRequest('refine', instruction);
-  });
-});
+els.refineBtns.forEach((btn) => btn.addEventListener('click', () => {
+  const instruction = REFINE_INSTRUCTIONS[btn.dataset.refine];
+  if (instruction) runPackageRequest('refine', instruction);
+}));
 
 function safeText(value, fallback = 'Not generated for this package.') {
-  return (value === undefined || value === null || value === '') ? fallback : String(value);
+  return value === undefined || value === null || value === '' ? fallback : String(value);
 }
 
 function renderResult(result) {
@@ -586,87 +714,68 @@ function renderResult(result) {
   renderSequence('reelPlanOutput', result.reelPlan, 'SHOT');
   renderSequence('visualNotesOutput', result.visualNotes, 'PHOTO');
   refreshSelectedPhotoOptions();
+  renderToolsState();
   activateTab('caption');
-  if (window.innerWidth < 981) {
-    els.resultsState.scrollIntoView({behavior: 'smooth', block: 'start'});
-  }
+  activateView('results');
 }
 
 function renderSequence(id, items, label) {
-  const el = document.getElementById(id);
+  const element = document.getElementById(id);
   if (!Array.isArray(items) || !items.length) {
-    el.innerHTML = '<div class="formatted-output">Not generated for this package.</div>';
+    element.innerHTML = '<div class="formatted-output">Not generated for this package.</div>';
     return;
   }
-  const openByDefault = window.innerWidth > 700;
-  el.innerHTML = items.map((item, i) => {
-    const title = typeof item === 'string' ? `${label} ${i + 1}` : (item.title || `${label} ${i + 1}`);
+  element.innerHTML = items.map((item, index) => {
+    const title = typeof item === 'string' ? `${label} ${index + 1}` : (item.title || `${label} ${index + 1}`);
     const detail = typeof item === 'string' ? item : (item.detail || item.note || '');
     const overlay = typeof item === 'object' ? (item.overlayText || '') : '';
     const overlayHtml = overlay ? `<div class="overlay-chip"><span>Overlay:</span> ${escapeHtml(overlay)}</div>` : '';
-    return `<details class="sequence-item" ${openByDefault ? 'open' : ''}>
-      <summary><span class="sequence-index">${i + 1}</span><strong>${escapeHtml(title)}</strong><span class="sequence-chevron">⌄</span></summary>
+    return `<details class="sequence-item">
+      <summary><span class="sequence-index">${index + 1}</span><strong>${escapeHtml(title)}</strong><span class="sequence-chevron">⌄</span></summary>
       <div class="sequence-detail"><p>${escapeHtml(detail)}</p>${overlayHtml}</div>
     </details>`;
   }).join('');
   updateDetailsToggleLabel();
 }
 
-function visibleSequenceDetails() {
-  return [...document.querySelectorAll('.result-panel:not(.hidden) details.sequence-item')];
+function reelDetails() {
+  return [...document.querySelectorAll('#reelPlanOutput details.sequence-item')];
 }
 
 function updateDetailsToggleLabel() {
   if (!els.detailsToggleBtn) return;
-  const details = visibleSequenceDetails();
+  const details = reelDetails();
   if (!details.length) {
     els.detailsToggleBtn.classList.add('hidden');
     return;
   }
   els.detailsToggleBtn.classList.remove('hidden');
-  const allOpen = details.every((item) => item.open);
-  els.detailsToggleBtn.textContent = allOpen ? 'Collapse details' : 'Expand details';
+  els.detailsToggleBtn.textContent = details.every((item) => item.open) ? 'Collapse all' : 'Expand all';
 }
 
-els.detailsToggleBtn?.addEventListener('click', () => {
-  const details = visibleSequenceDetails();
+els.detailsToggleBtn.addEventListener('click', () => {
+  const details = reelDetails();
   const shouldOpen = !details.every((item) => item.open);
   details.forEach((item) => { item.open = shouldOpen; });
   updateDetailsToggleLabel();
 });
-
 document.addEventListener('toggle', (event) => {
-  if (event.target?.matches?.('details.sequence-item')) updateDetailsToggleLabel();
+  if (event.target?.matches?.('#reelPlanOutput details.sequence-item')) updateDetailsToggleLabel();
 }, true);
 
 function activateTab(name) {
-  document.querySelectorAll('.tab').forEach((tab) => {
-    tab.classList.toggle('active', tab.dataset.tab === name);
-  });
-  document.querySelectorAll('.result-panel').forEach((panel) => {
-    panel.classList.toggle('hidden', panel.dataset.panel !== name);
-  });
+  document.querySelectorAll('.tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.tab === name));
+  document.querySelectorAll('.result-panel').forEach((panel) => panel.classList.toggle('hidden', panel.dataset.panel !== name));
   updateDetailsToggleLabel();
 }
-
-document.querySelectorAll('.tab').forEach((tab) => {
-  tab.addEventListener('click', () => activateTab(tab.dataset.tab));
-});
+document.querySelectorAll('.tab').forEach((tab) => tab.addEventListener('click', () => activateTab(tab.dataset.tab)));
 
 const copyMap = {
-  caption: 'caption',
-  alternate: 'alternate',
-  hashtags: 'hashtags',
-  postOverlayText: 'postOverlayText',
-  reelHook: 'reelHook',
-  overlayText: 'overlayText',
-  story: 'story',
-  storyOverlayText: 'storyOverlayText',
-  cta: 'cta'
+  caption: 'caption', alternate: 'alternate', hashtags: 'hashtags', postOverlayText: 'postOverlayText',
+  reelHook: 'reelHook', overlayText: 'overlayText', story: 'story', storyOverlayText: 'storyOverlayText', cta: 'cta'
 };
-
 document.querySelectorAll('.copy-btn').forEach((btn) => {
-  if (btn.id === 'downloadEditedBtn') return;
+  if (btn.id === 'downloadEditedBtn' || btn.id === 'detailsToggleBtn') return;
   btn.addEventListener('click', async () => {
     if (!state.result) return;
     let value = state.result[copyMap[btn.dataset.copy]];
@@ -676,14 +785,21 @@ document.querySelectorAll('.copy-btn').forEach((btn) => {
   });
 });
 
-els.newBtn.addEventListener('click', () => {
+function resetForNewProject() {
+  state.photos = [];
   state.result = null;
+  state.videoSource = null;
+  state.selectedPhotoIndex = 0;
+  els.description.value = '';
   clearEditedPreview();
+  renderPhotos();
+  refreshSelectedPhotoOptions();
+  renderToolsState();
   els.resultsState.classList.add('hidden');
   els.emptyState.classList.remove('hidden');
-  els.description.focus();
-  window.scrollTo({top: 0, behavior: 'smooth'});
-});
+  activateView('create');
+}
+els.newBtn.addEventListener('click', resetForNewProject);
 
 function refreshSelectedPhotoOptions() {
   let videoFrameNumber = 0;
@@ -703,11 +819,18 @@ function refreshSelectedPhotoOptions() {
     els.selectedPhoto.value = String(state.selectedPhotoIndex);
   }
 }
-
 els.selectedPhoto.addEventListener('change', () => {
   state.selectedPhotoIndex = Number(els.selectedPhoto.value || 0);
   clearEditedPreview();
 });
+
+function renderToolsState() {
+  const hasMedia = state.photos.length > 0;
+  els.toolsEmpty.classList.toggle('hidden', hasMedia);
+  els.toolsState.classList.toggle('hidden', !hasMedia);
+  els.analysisTools.classList.toggle('hidden', !state.result);
+  if (hasMedia) refreshSelectedPhotoOptions();
+}
 
 function getSelectedPhoto() {
   return state.photos[state.selectedPhotoIndex] || null;
@@ -715,59 +838,57 @@ function getSelectedPhoto() {
 
 function leadPhotoIndex() {
   const lead = state.result?.leadImage || '';
-
   const imageMatch = lead.match(/image\s*(\d+)/i);
   if (imageMatch) {
     const index = Math.max(0, Number(imageMatch[1]) - 1);
     if (state.photos[index]) return index;
   }
-
   const frameMatch = lead.match(/(?:video\s*)?frame\s*(\d+)/i);
   if (frameMatch) {
     const frameNumber = Math.max(1, Number(frameMatch[1]));
-    const frameIndexes = state.photos
-      .map((photo, index) => photo.sourceType === 'videoFrame' ? index : -1)
-      .filter((index) => index >= 0);
+    const frameIndexes = state.photos.map((photo, index) => photo.sourceType === 'videoFrame' ? index : -1).filter((index) => index >= 0);
     if (frameIndexes[frameNumber - 1] !== undefined) return frameIndexes[frameNumber - 1];
   }
-
   const photoMatch = lead.match(/photo\s*(\d+)/i);
   if (photoMatch) {
     const photoNumber = Math.max(1, Number(photoMatch[1]));
-    const photoIndexes = state.photos
-      .map((photo, index) => photo.sourceType !== 'videoFrame' ? index : -1)
-      .filter((index) => index >= 0);
+    const photoIndexes = state.photos.map((photo, index) => photo.sourceType !== 'videoFrame' ? index : -1).filter((index) => index >= 0);
     if (photoIndexes[photoNumber - 1] !== undefined) return photoIndexes[photoNumber - 1];
   }
-
   return Math.min(state.selectedPhotoIndex, Math.max(0, state.photos.length - 1));
 }
 
 function clearEditedPreview() {
   state.editedPhotoDataUrl = '';
   state.editedPhotoLabel = '';
+  state.originalPreviewDataUrl = '';
+  state.previewMode = 'edited';
   els.editedPreviewCard.classList.add('hidden');
-  els.originalPreview.removeAttribute('src');
-  els.editedPreview.removeAttribute('src');
+  els.previewDisplayImage.removeAttribute('src');
   els.downloadEditedBtn.disabled = true;
   els.editSummary.textContent = '';
 }
 
+function renderPreviewMode(mode) {
+  state.previewMode = mode;
+  els.previewModeBtns.forEach((btn) => btn.classList.toggle('active', btn.dataset.previewMode === mode));
+  const dataUrl = mode === 'original' ? state.originalPreviewDataUrl : state.editedPhotoDataUrl;
+  if (dataUrl) els.previewDisplayImage.src = dataUrl;
+}
+els.previewModeBtns.forEach((btn) => btn.addEventListener('click', () => renderPreviewMode(btn.dataset.previewMode)));
+
 function showEditedPreview(editedDataUrl, label, summary = '', originalDataUrl = '') {
   const photo = getSelectedPhoto();
-  const sourceImage = originalDataUrl || photo?.dataUrl || editedDataUrl;
+  state.originalPreviewDataUrl = originalDataUrl || photo?.dataUrl || editedDataUrl;
   state.editedPhotoDataUrl = editedDataUrl;
   state.editedPhotoLabel = label;
   els.editedPreviewTitle.textContent = label;
-  els.originalPreview.src = sourceImage;
-  els.editedPreview.src = editedDataUrl;
   els.editSummary.textContent = summary;
   els.editedPreviewCard.classList.remove('hidden');
   els.downloadEditedBtn.disabled = false;
-  activateTab('visual');
-  if (window.innerWidth < 981) {
-    els.editedPreviewCard.scrollIntoView({behavior: 'smooth', block: 'start'});
-  }
+  renderPreviewMode('edited');
+  activateView('tools', {scroll: false});
+  requestAnimationFrame(() => els.editedPreviewCard.scrollIntoView({behavior: 'smooth', block: 'start'}));
 }
 
 function selectedPhotoNoteText() {
@@ -789,11 +910,7 @@ async function createLocalEditedPhoto(dataUrl, options = {}) {
   const img = await loadImageFromDataUrl(dataUrl);
   const mode = options.mode || 'basic';
   const targetAspect = options.targetAspect || null;
-  let sx = 0;
-  let sy = 0;
-  let sw = img.width;
-  let sh = img.height;
-
+  let sx = 0, sy = 0, sw = img.width, sh = img.height;
   if (targetAspect) {
     const sourceAspect = img.width / img.height;
     if (sourceAspect > targetAspect) {
@@ -810,14 +927,12 @@ async function createLocalEditedPhoto(dataUrl, options = {}) {
     sw = img.width * (1 - crop * 2);
     sh = img.height * (1 - crop * 2);
   }
-
   const outputWidth = targetAspect ? 1200 : Math.max(1, Math.round(sw));
   const outputHeight = targetAspect ? Math.round(outputWidth / targetAspect) : Math.max(1, Math.round(sh));
   const canvas = document.createElement('canvas');
   canvas.width = outputWidth;
   canvas.height = outputHeight;
   const ctx = canvas.getContext('2d');
-
   const brightness = Number(options.brightness ?? (mode === 'basic' ? 1.10 : 1.06));
   const contrast = Number(options.contrast ?? (mode === 'basic' ? 1.10 : 1.08));
   const saturation = Number(options.saturation ?? (mode === 'basic' ? 1.07 : 1.04));
@@ -845,12 +960,8 @@ function wrapText(ctx, text, maxWidth) {
   let line = '';
   words.forEach((word) => {
     const test = line ? `${line} ${word}` : word;
-    if (ctx.measureText(test).width <= maxWidth || !line) {
-      line = test;
-    } else {
-      lines.push(line);
-      line = word;
-    }
+    if (ctx.measureText(test).width <= maxWidth || !line) line = test;
+    else { lines.push(line); line = word; }
   });
   if (line) lines.push(line);
   return lines;
@@ -862,13 +973,9 @@ async function createPostGraphic(dataUrl) {
   canvas.width = 1080;
   canvas.height = 1350;
   const ctx = canvas.getContext('2d');
-
   const targetAspect = canvas.width / canvas.height;
   const sourceAspect = img.width / img.height;
-  let sx = 0;
-  let sy = 0;
-  let sw = img.width;
-  let sh = img.height;
+  let sx = 0, sy = 0, sw = img.width, sh = img.height;
   if (sourceAspect > targetAspect) {
     sw = img.height * targetAspect;
     sx = (img.width - sw) / 2;
@@ -876,21 +983,18 @@ async function createPostGraphic(dataUrl) {
     sh = img.width / targetAspect;
     sy = Math.max(0, (img.height - sh) * 0.35);
   }
-
   ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-
-  const overlayGradient = ctx.createLinearGradient(0, canvas.height * 0.40, 0, canvas.height);
-  overlayGradient.addColorStop(0, 'rgba(0,0,0,0)');
-  overlayGradient.addColorStop(0.55, 'rgba(0,0,0,0.24)');
-  overlayGradient.addColorStop(1, 'rgba(0,0,0,0.76)');
-  ctx.fillStyle = overlayGradient;
+  const gradient = ctx.createLinearGradient(0, canvas.height * 0.40, 0, canvas.height);
+  gradient.addColorStop(0, 'rgba(0,0,0,0)');
+  gradient.addColorStop(0.55, 'rgba(0,0,0,0.24)');
+  gradient.addColorStop(1, 'rgba(0,0,0,0.76)');
+  ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   const brand = getProfile().businessName || 'Ocean State Spice & Tea Merchants';
   const location = getProfile().businessLocation || '';
   const text = state.result?.postOverlayText || state.result?.headline || 'New in the shop';
   const subText = location ? `${brand} • ${location}` : brand;
-
   const left = 70;
   const maxWidth = canvas.width - left * 2;
 
@@ -925,17 +1029,11 @@ async function createPostGraphic(dataUrl) {
   ctx.fillStyle = 'rgba(255,255,255,0.96)';
   ctx.font = `800 ${fontSize}px Inter, Arial, sans-serif`;
   ctx.textBaseline = 'top';
-  lines.forEach((line, index) => {
-    ctx.fillText(line, left, y + (index * lineHeight));
-  });
-
+  lines.forEach((line, index) => ctx.fillText(line, left, y + index * lineHeight));
   ctx.fillStyle = 'rgba(255,255,255,0.90)';
   ctx.font = `600 ${subFontSize}px Inter, Arial, sans-serif`;
   const footerY = canvas.height - footerBottom - footerHeight;
-  footerLines.forEach((line, index) => {
-    ctx.fillText(line, left, footerY + (index * footerLineHeight));
-  });
-
+  footerLines.forEach((line, index) => ctx.fillText(line, left, footerY + index * footerLineHeight));
   return canvas.toDataURL('image/jpeg', 0.95);
 }
 
@@ -945,7 +1043,6 @@ async function runLocalPhotoTool(tool, sourceButton = null) {
     showToast('Choose a photo first');
     return;
   }
-
   let label = 'Adjusted photo';
   let summary = '';
   let options = {mode: 'basic'};
@@ -953,31 +1050,29 @@ async function runLocalPhotoTool(tool, sourceButton = null) {
 
   if (tool === 'basic') {
     label = 'Auto enhanced photo';
-    summary = 'Applied a tighter center crop, brighter exposure, stronger contrast, and a small color boost. This is a non-generative edit, so products and labels stay exactly from your original image.';
+    summary = 'Tighter crop plus modest light, contrast and color improvements. Your original products and labels stay intact.';
     options = {mode: 'basic'};
   } else if (tool === '4x5') {
     label = '4:5 post version';
-    summary = 'Reframed the original photo to a 4:5 portrait crop for an Instagram/Facebook feed post, with a small light and color lift.';
+    summary = 'Reframed your original photo to a 4:5 feed post with a small light and color lift.';
     options = {mode: 'format', targetAspect: 4 / 5};
   } else if (tool === '9x16') {
     label = '9:16 story/reel version';
-    summary = 'Reframed the original photo to a 9:16 vertical crop for Stories/Reels, with a small light and color lift.';
+    summary = 'Reframed your original photo to a 9:16 vertical Story/Reel format with a small light and color lift.';
     options = {mode: 'format', targetAspect: 9 / 16};
   } else if (tool === 'postGraphic') {
     if (!state.result) {
-      showToast('Create a package first so the app has overlay text to use');
+      showToast('Create a package first so there is overlay text to use');
       return;
     }
     label = '4:5 post graphic';
-    summary = 'Built a ready-to-post 4:5 graphic using your chosen image and the suggested post overlay text. Download it and use it as a finished post image or starting point.';
+    summary = 'Ready-made 4:5 graphic using your original image and suggested overlay text.';
     originalDataUrl = state.photos[leadPhotoIndex()]?.dataUrl || photo.dataUrl;
   }
 
   setActivePhotoButton(sourceButton, true, tool === 'postGraphic' ? 'Building…' : 'Working…');
   try {
-    const edited = tool === 'postGraphic'
-      ? await createPostGraphic(originalDataUrl)
-      : await createLocalEditedPhoto(photo.dataUrl, options);
+    const edited = tool === 'postGraphic' ? await createPostGraphic(originalDataUrl) : await createLocalEditedPhoto(photo.dataUrl, options);
     showEditedPreview(edited, label, summary, originalDataUrl);
   } catch (error) {
     console.error(error);
@@ -997,16 +1092,10 @@ async function runAiCleanup(sourceButton = null) {
     showToast('Create a package first so the AI has photo feedback to follow');
     return;
   }
-
   setActivePhotoButton(sourceButton, true, 'Applying safe edit…');
   try {
-    const note = selectedPhotoNoteText();
-    const edited = await createLocalEditedPhoto(photo.dataUrl, safeAiEditOptions(note));
-    showEditedPreview(
-      edited,
-      'AI recommended edit — Preserve Reality',
-      'Used the AI photo-analysis notes to choose a safe crop and light/color polish. This edit is non-generative: it does not redraw, replace, invent, or relabel products, packaging, logos, or shelf contents.'
-    );
+    const edited = await createLocalEditedPhoto(photo.dataUrl, safeAiEditOptions(selectedPhotoNoteText()));
+    showEditedPreview(edited, 'AI recommended edit — Preserve Reality', 'Used the AI photo notes to choose a safe crop and light/color polish. This is non-generative and does not redraw merchandise, labels, logos or packaging.');
   } catch (error) {
     console.error(error);
     showAuthNotice('That photo could not be safely adjusted in the browser.');
@@ -1028,13 +1117,13 @@ els.previewGraphicBtn.addEventListener('click', () => runLocalPhotoTool('postGra
 
 els.downloadEditedBtn.addEventListener('click', () => {
   if (!state.editedPhotoDataUrl) return;
-  const a = document.createElement('a');
+  const anchor = document.createElement('a');
   const safeLabel = (state.editedPhotoLabel || 'edited-photo').toLowerCase().replace(/[^a-z0-9]+/g, '-');
-  a.href = state.editedPhotoDataUrl;
-  a.download = `${safeLabel || 'edited-photo'}.jpg`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  anchor.href = state.editedPhotoDataUrl;
+  anchor.download = `${safeLabel || 'edited-photo'}.jpg`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
 });
 
 async function compressDataUrlForHistory(dataUrl) {
@@ -1045,8 +1134,7 @@ async function compressDataUrlForHistory(dataUrl) {
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(img.width * scale));
     canvas.height = Math.max(1, Math.round(img.height * scale));
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
     return canvas.toDataURL('image/jpeg', 0.62);
   } catch {
     return '';
@@ -1054,13 +1142,9 @@ async function compressDataUrlForHistory(dataUrl) {
 }
 
 async function currentProjectSnapshot() {
-  const historyPhotos = await Promise.all(state.photos.map(async (photo) => ({
-    ...photo,
-    dataUrl: await compressDataUrlForHistory(photo.dataUrl),
-  })));
-
+  const historyPhotos = await Promise.all(state.photos.map(async (photo) => ({...photo, dataUrl: await compressDataUrlForHistory(photo.dataUrl)})));
   return {
-    id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    id: globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     createdAt: Date.now(),
     headline: state.result?.headline || els.description.value.trim() || 'Untitled project',
     description: els.description.value,
@@ -1083,15 +1167,12 @@ async function currentProjectSnapshot() {
 async function saveCurrentProject() {
   if (!state.result) return;
   const snapshot = await currentProjectSnapshot();
-  const deduped = state.recentProjects.filter((item) =>
-    !(item.headline === snapshot.headline && item.description === snapshot.description));
+  const deduped = state.recentProjects.filter((item) => !(item.headline === snapshot.headline && item.description === snapshot.description));
   state.recentProjects = [snapshot, ...deduped].slice(0, MAX_RECENT_PROJECTS);
-
   const save = (projects) => {
     localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(projects));
     state.recentProjects = projects;
   };
-
   try {
     save(state.recentProjects);
   } catch (error) {
@@ -1100,15 +1181,11 @@ async function saveCurrentProject() {
     let saved = false;
     while (trimmed.length > 1 && !saved) {
       trimmed = trimmed.slice(0, -1);
-      try {
-        save(trimmed);
-        saved = true;
-      } catch {}
+      try { save(trimmed); saved = true; } catch {}
     }
     if (!saved) {
-      const lightweight = [{...snapshot, photos: [], videoSource: null}];
       try {
-        save(lightweight);
+        save([{...snapshot, photos: [], videoSource: null}]);
         showToast('Project saved without media preview to save phone storage');
       } catch {
         state.recentProjects = [];
@@ -1123,7 +1200,7 @@ async function saveCurrentProject() {
 function loadRecentProjects() {
   try {
     const currentRaw = localStorage.getItem(PROJECTS_STORAGE_KEY);
-    const legacyRaw = localStorage.getItem('socialStudioRecentProjectsV09') || localStorage.getItem('socialStudioRecentProjectsV08');
+    const legacyRaw = localStorage.getItem('socialStudioRecentProjectsV10') || localStorage.getItem('socialStudioRecentProjectsV09') || localStorage.getItem('socialStudioRecentProjectsV08');
     state.recentProjects = JSON.parse(currentRaw || legacyRaw || '[]');
     if (!Array.isArray(state.recentProjects)) state.recentProjects = [];
     if (!currentRaw && legacyRaw && state.recentProjects.length) {
@@ -1137,29 +1214,22 @@ function loadRecentProjects() {
 
 function renderRecentProjects() {
   const list = state.recentProjects || [];
-  els.recentProjectsPanel.classList.toggle('hidden', !list.length);
-  if (!list.length) {
-    els.recentProjectsList.innerHTML = '';
-    return;
-  }
+  els.projectsEmpty.classList.toggle('hidden', Boolean(list.length));
   els.recentProjectsList.innerHTML = list.map((project) => {
     const projectPhotos = Array.isArray(project.photos) ? project.photos : [];
     const photoCount = projectPhotos.filter((photo) => photo.sourceType !== 'videoFrame').length;
     const frameCount = projectPhotos.filter((photo) => photo.sourceType === 'videoFrame').length;
     const mediaBits = [];
     if (photoCount) mediaBits.push(`${photoCount} photo${photoCount === 1 ? '' : 's'}`);
-    if (project.videoSource) mediaBits.push(`video${frameCount ? ` • ${frameCount} sampled frame${frameCount === 1 ? '' : 's'}` : ''}`);
+    if (project.videoSource) mediaBits.push(`video${frameCount ? ` • ${frameCount} frame${frameCount === 1 ? '' : 's'}` : ''}`);
     if (!mediaBits.length) mediaBits.push('saved content');
-    return `
-    <button class="recent-project" type="button" data-project-id="${project.id}">
-      <div class="recent-project-title">${escapeHtml(project.headline || 'Untitled project')}</div>
-      <div class="recent-project-meta">${escapeHtml(formatDateTime(project.createdAt))} • ${mediaBits.join(' • ')}</div>
+    return `<button class="recent-project" type="button" data-project-id="${project.id}">
+      <div class="recent-project-icon">${project.videoSource ? '🎞️' : '📷'}</div>
+      <div><div class="recent-project-title">${escapeHtml(project.headline || 'Untitled project')}</div><div class="recent-project-meta">${escapeHtml(formatDateTime(project.createdAt))} • ${mediaBits.join(' • ')}</div></div>
+      <span class="recent-project-arrow">›</span>
     </button>`;
   }).join('');
-
-  els.recentProjectsList.querySelectorAll('[data-project-id]').forEach((btn) => {
-    btn.addEventListener('click', () => loadProject(btn.dataset.projectId));
-  });
+  els.recentProjectsList.querySelectorAll('[data-project-id]').forEach((btn) => btn.addEventListener('click', () => loadProject(btn.dataset.projectId)));
 }
 
 function applyProject(project) {
@@ -1179,26 +1249,23 @@ function applyProject(project) {
   renderPhotos();
   refreshSelectedPhotoOptions();
   clearEditedPreview();
-  if (state.result) {
-    renderResult(state.result);
-  } else {
+  renderToolsState();
+  if (state.result) renderResult(state.result);
+  else {
     els.resultsState.classList.add('hidden');
     els.emptyState.classList.remove('hidden');
+    activateView('create');
   }
-  window.scrollTo({top: 0, behavior: 'smooth'});
   showToast('Project loaded');
 }
 
 function loadProject(projectId) {
-  const project = state.recentProjects.find((item) => item.id === projectId);
-  applyProject(project);
+  applyProject(state.recentProjects.find((item) => item.id === projectId));
 }
 
 els.clearProjectsBtn.addEventListener('click', () => {
   state.recentProjects = [];
-  localStorage.removeItem(PROJECTS_STORAGE_KEY);
-  localStorage.removeItem('socialStudioRecentProjectsV09');
-  localStorage.removeItem('socialStudioRecentProjectsV08');
+  ['socialStudioRecentProjectsV11', 'socialStudioRecentProjectsV10', 'socialStudioRecentProjectsV09', 'socialStudioRecentProjectsV08'].forEach((key) => localStorage.removeItem(key));
   renderRecentProjects();
   showToast('Recent projects cleared');
 });
@@ -1207,4 +1274,6 @@ loadProfile();
 loadRecentProjects();
 updateReelModeVisibility();
 refreshSelectedPhotoOptions();
+renderToolsState();
+activateView('create', {scroll: false});
 initFirebase();
