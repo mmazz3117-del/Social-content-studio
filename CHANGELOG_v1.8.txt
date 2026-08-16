@@ -1,0 +1,44 @@
+Social Media Pal v1.8 — Winner Polish
+
+GOAL
+Make Social Media Pal feel less like a form and more like a talented content employee:
+hand it raw media, let it build, then review polished choices.
+
+UI / WORKFLOW
+- New creation headline: “Hand me the raw material. I’ll build the content.”
+- Added a simple 3-step workflow strip: Add media → Give direction → Pal builds it.
+- “Make It For Me” is now the clear primary action.
+- “Use My Settings” is secondary for users who want manual control.
+- Added quick direction chips: New arrivals, Product spotlight, Store tour, Teach something, Make it fun.
+- Added a live media summary showing photos/videos ready for the project.
+- Added a Pal’s Pick recommendation on Results so the app tells you which finished asset to review first.
+
+WORKER HANDOFF / REVIEW
+- New Pal Handoff language: finished media first, instructions second.
+- Added 0/3 approval meter.
+- Approve buttons now read “Use This Post/Story/Reel.”
+- Added Next: Story / Next: Reel workflow buttons.
+- Finished asset tabs stay sticky on mobile while reviewing.
+- Video projects automatically open to Reel first; photo projects open to Post first.
+- Moved ZIP packaging into “More save options” so iPhone users are not pushed toward a confusing archive workflow.
+
+CREATIVE CONTROLS
+- Rebuilt Quick Tweaks into colorful, clearly active Creative Controls.
+- More Fun / New Direction now rotate visual treatment too.
+- Similarity protection is stricter; if More Fun/New Direction comes back too close to the old copy, Social Media Pal automatically asks again with a stronger instruction.
+
+VIDEO / REEL POLISH
+- Supports up to 4 videos per project and 10 total media items.
+- Multiple clips can be turned into different Reel highlight moments using the real moving footage.
+- Reel cuts now include short fade transitions for a smoother feel.
+- Reel text remains reference-only in the app and is not burned into the exported Reel.
+- A single normal-length source video (up to ~30 seconds) is no longer aggressively cut down; the app preserves the recording instead of capping it at 12 seconds.
+
+PROJECT CLEANUP
+- Refining the current project now updates the same saved project instead of accidentally creating duplicate project entries.
+- Delete Current remains available.
+- Stronger New Project reset clears old previews, video sources, output text and asset state.
+
+BACKEND
+- No Firebase function changes are required for v1.8.
+- This is a GitHub/frontend update only.

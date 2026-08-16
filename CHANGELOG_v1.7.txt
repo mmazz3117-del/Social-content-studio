@@ -1,0 +1,31 @@
+Social Media Pal v1.7 — August 2026
+
+Implemented updates:
+1. Multiple video support
+   - Choose Video now accepts multiple videos in one project.
+   - Up to 4 videos per project.
+   - Up to 10 total media items (photos + sampled video frames).
+   - Reel builder can now assemble highlight moments from multiple clips.
+
+2. Worker Mode / Reel behavior
+   - Reel exported video remains clean with text kept as on-screen reference only in the app.
+   - Multi-clip Reels now use original moving footage from the related clip.
+
+3. Story improvements
+   - Story preview/export recognizes moving video when a project includes video.
+   - Story card label indicates multi-clip moving story when relevant.
+
+4. Current project deletion
+   - Added “Delete current” action in the Results header.
+   - Lets you remove the active saved project (or clear an unsaved workspace) without clearing all history.
+
+5. Clear/new project cleanup
+   - Stronger reset logic now clears lingering preview images, preview videos, reel text, badges, and asset status.
+
+6. More Fun refinement
+   - Stronger retry logic when the AI result comes back too similar.
+   - Visual style also rotates for More Fun / Try Another so the result feels more noticeably different.
+
+7. Saved projects / migration
+   - New storage key: socialStudioRecentProjectsV17.
+   - Older saved projects from V16 and earlier are still loaded and migrated forward.

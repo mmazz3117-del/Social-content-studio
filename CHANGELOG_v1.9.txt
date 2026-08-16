@@ -1,0 +1,20 @@
+Social Media Pal v1.9 FINAL — Tell Pal + Direction-Aware Editing
+
+NEW
+- Tell Pal speech-to-text button directly under the project description.
+- Auto / Mono / Stereo microphone modes.
+- Test Microphone control with live audio meter and channel feedback when available.
+- Saved microphone preference.
+- Friendly recovery messages for blocked permissions, missing audio capture, no speech, and unsupported speech recognition.
+
+CREATIVE DIRECTION NOW AFFECTS THE EDIT
+- Energetic / quick / punchy -> shorter clips, faster pacing, tighter fades.
+- Smooth / elegant / calm / cinematic -> longer scenes, gentler movement and softer fades.
+- Store tour / overview -> pan-oriented photo motion.
+- Product / detail / close-up -> zoom-oriented photo motion.
+- Video / footage / clips -> prioritize actual moving footage.
+- Full video / don't cut -> preserve a single video continuously when appropriate.
+
+CUMULATIVE
+- Includes all v1.8 features. No need to upload v1.8 separately first.
+- Frontend only; no Firebase redeploy required.

@@ -10,20 +10,21 @@ const FIREBASE_CONFIG = {
 const FIREBASE_REGION = 'us-central1';
 const FUNCTION_NAME = 'generateSocialPackage';
 const PHOTO_EDIT_FUNCTION = 'editSocialPhoto';
-const MAX_IMAGES = 6;
-const MAX_VIDEOS = 1;
+const MAX_IMAGES = 10;
+const MAX_VIDEOS = 4;
 const VIDEO_FRAME_COUNT = 3;
 const MAX_TOTAL_IMAGE_CHARS = 12_000_000;
-const PROJECTS_STORAGE_KEY = 'socialStudioRecentProjectsV15';
+const PROJECTS_STORAGE_KEY = 'socialStudioRecentProjectsV17';
 const MAX_RECENT_PROJECTS = 8;
 const MEDIA_DB_NAME = 'socialStudioMediaV1';
 const MEDIA_DB_STORE = 'videos';
+const MIC_MODE_STORAGE_KEY = 'socialMediaPalMicModeV1';
 
 const REFINE_INSTRUCTIONS = {
-  shorter: 'Make the package tighter and more concise. Shorten the primary caption and story first while keeping the same facts and tone.',
-  more_fun: 'Keep the same facts, but make the wording a little more playful and lively without sounding cheesy or overhyped.',
-  less_salesy: 'Keep the same facts, but make the writing feel more natural, local, and less promotional or pushy.',
-  try_another: 'Create a fresh alternate version of the whole package. Keep the same facts and general tone, but take a slightly different writing angle.'
+  shorter: 'Create a clearly shorter version, not a light edit. Reduce the primary caption and Story copy by roughly 35–50% while preserving the important facts. Use tighter sentences and remove repetition.',
+  more_fun: 'Create a noticeably different, more playful version of the entire package. Change the opening hook, sentence rhythm, caption wording, Story wording, and suggested overlays while keeping every factual detail accurate. Add warmth, personality and energy without sounding cheesy, childish, or overhyped. Do not simply paraphrase the current result.',
+  less_salesy: 'Rewrite the package so it feels clearly more conversational and editorial, like a friendly local recommendation rather than an advertisement. Remove pushy sales language, vary the hook, and keep the same facts.',
+  try_another: 'Create a genuinely different creative concept for the whole package, not a paraphrase. Choose a new angle, new hook, new caption structure, new Story wording, and different overlay suggestions while preserving the facts.'
 };
 
 const state = {
@@ -39,13 +40,19 @@ const state = {
   previewMode: 'edited',
   recentProjects: [],
   videoSource: null,
+  videoSources: [],
   activeView: 'create',
-  readyAssets: {feed: '', story: '', reelSlides: [], reelBlob: null, reelMime: '', packageBlob: null},
+  readyAssets: {feed: '', story: '', storyVideoBlob: null, storyMime: '', reelSlides: [], reelBlob: null, reelMime: '', packageBlob: null},
   reelPreviewTimer: null,
   reelPreviewIndex: 0,
   assetStyleIndex: 0,
   activeAssetTab: 'feed',
   approvedAssets: {feed: false, story: false, reel: false},
+  activeProjectId: null,
+  mediaSession: 0,
+  mediaBusy: false,
+  voiceListening: false,
+  lastWorkingMicMode: '',
 };
 
 const els = {
@@ -53,7 +60,13 @@ const els = {
   videoInput: document.getElementById('videoInput'),
   dropZone: document.getElementById('dropZone'),
   photoGrid: document.getElementById('photoGrid'),
+  mediaSummary: document.getElementById('mediaSummary'),
   description: document.getElementById('description'),
+  tellPalBtn: document.getElementById('tellPalBtn'),
+  voiceStatus: document.getElementById('voiceStatus'),
+  micMode: document.getElementById('micMode'),
+  testMicBtn: document.getElementById('testMicBtn'),
+  micLevelBar: document.getElementById('micLevelBar'),
   contentType: document.getElementById('contentType'),
   tone: document.getElementById('tone'),
   includeReel: document.getElementById('includeReel'),
@@ -79,11 +92,18 @@ const els = {
   brandVoice: document.getElementById('brandVoice'),
   brandDefaults: document.getElementById('brandDefaults'),
   newBtn: document.getElementById('newBtn'),
+  deleteCurrentBtn: document.getElementById('deleteCurrentBtn'),
   toast: document.getElementById('toast'),
   refineBtns: [...document.querySelectorAll('.refine-btn')],
   workerAssets: document.getElementById('workerAssets'),
   feedAssetPreview: document.getElementById('feedAssetPreview'),
   storyAssetPreview: document.getElementById('storyAssetPreview'),
+  storyAssetPreviewVideo: document.getElementById('storyAssetPreviewVideo'),
+  storyVideoOverlay: document.getElementById('storyVideoOverlay'),
+  storyVideoOverlayTitle: document.getElementById('storyVideoOverlayTitle'),
+  storyVideoOverlayCta: document.getElementById('storyVideoOverlayCta'),
+  storyAssetTitle: document.getElementById('storyAssetTitle'),
+  storyReadyBadge: document.getElementById('storyReadyBadge'),
   downloadFeedBtn: document.getElementById('downloadFeedBtn'),
   downloadStoryBtn: document.getElementById('downloadStoryBtn'),
   downloadPackageBtn: document.getElementById('downloadPackageBtn'),
@@ -100,6 +120,10 @@ const els = {
   assetTabs: [...document.querySelectorAll('.asset-tab')],
   assetPanels: [...document.querySelectorAll('.asset-panel')],
   approveBtns: [...document.querySelectorAll('.approve-btn')],
+  approvalCount: document.getElementById('approvalCount'),
+  palPick: document.getElementById('palPick'),
+  nextAssetBtns: [...document.querySelectorAll('.next-asset-btn')],
+  briefStarterBtns: [...document.querySelectorAll('[data-brief-starter]')],
   copyFullPostBtn: document.getElementById('copyFullPostBtn'),
   selectedPhoto: document.getElementById('selectedPhoto'),
   basicEditBtn: document.getElementById('basicEditBtn'),
@@ -166,6 +190,11 @@ let cameraStream = null;
 let mediaRecorder = null;
 let recordedChunks = [];
 let discardRecording = false;
+let speechRecognition = null;
+let voiceBaseText = '';
+let voiceTranscript = '';
+let micTestStream = null;
+let micAudioContext = null;
 
 
 function makeId(prefix = 'media') {
@@ -237,14 +266,34 @@ async function deleteVideoBlobFromDb(id) {
   }
 }
 
+function allVideoSources() {
+  if (Array.isArray(state.videoSources) && state.videoSources.length) return state.videoSources;
+  return state.videoSource ? [state.videoSource] : [];
+}
+
+function primaryVideoSource() {
+  return allVideoSources()[0] || null;
+}
+
+function syncPrimaryVideoSource() {
+  state.videoSource = primaryVideoSource();
+}
+
 function releaseCurrentVideoUrl() {
-  if (state.videoSource?.objectUrl) {
-    try { URL.revokeObjectURL(state.videoSource.objectUrl); } catch {}
-  }
+  allVideoSources().forEach((source) => {
+    if (source?.objectUrl) {
+      try { URL.revokeObjectURL(source.objectUrl); } catch {}
+    }
+  });
   if (els.reelPreviewVideo) {
     try { els.reelPreviewVideo.pause(); } catch {}
     els.reelPreviewVideo.removeAttribute('src');
     els.reelPreviewVideo.load?.();
+  }
+  if (els.storyAssetPreviewVideo) {
+    try { els.storyAssetPreviewVideo.pause(); } catch {}
+    els.storyAssetPreviewVideo.removeAttribute('src');
+    els.storyAssetPreviewVideo.load?.();
   }
 }
 
@@ -257,7 +306,12 @@ function serializableVideoSource(source = state.videoSource) {
     frameCount: Number(source.frameCount || 0),
     type: source.type || '',
     size: Number(source.size || 0),
+    clipIndex: Number(source.clipIndex || 0),
   };
+}
+
+function serializableVideoSources(sources = allVideoSources()) {
+  return (sources || []).map((source) => serializableVideoSource(source)).filter(Boolean);
 }
 
 async function hydrateVideoSource(source) {
@@ -273,6 +327,19 @@ async function hydrateVideoSource(source) {
   return clean;
 }
 
+async function hydrateVideoSources(sources = []) {
+  const hydrated = [];
+  for (const source of (sources || [])) {
+    const item = await hydrateVideoSource(source);
+    if (item) hydrated.push(item);
+  }
+  return hydrated;
+}
+
+function videoSourceById(id) {
+  return allVideoSources().find((source) => source.id === id) || null;
+}
+
 function showToast(message) {
   els.toast.textContent = message;
   els.toast.classList.add('show');
@@ -280,11 +347,279 @@ function showToast(message) {
   showToast.timer = setTimeout(() => els.toast.classList.remove('show'), 2400);
 }
 
+function setVoiceStatus(message, stateName = '') {
+  if (!els.voiceStatus) return;
+  els.voiceStatus.textContent = message;
+  if (stateName) els.voiceStatus.dataset.state = stateName;
+  else delete els.voiceStatus.dataset.state;
+}
+
+function setMicMeter(level = 0) {
+  if (!els.micLevelBar) return;
+  els.micLevelBar.style.width = `${Math.round(clamp(Number(level || 0), 0, 1) * 100)}%`;
+}
+
+function micCandidates(mode = 'auto') {
+  if (mode === 'mono' || mode === 'stereo') return [mode];
+  const preferred = state.lastWorkingMicMode && state.lastWorkingMicMode !== 'auto' ? [state.lastWorkingMicMode] : [];
+  return [...new Set([...preferred, 'default', 'mono', 'stereo'])];
+}
+
+function micConstraints(candidate = 'default') {
+  const supported = navigator.mediaDevices?.getSupportedConstraints?.() || {};
+  const audio = {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+  };
+  if (supported.channelCount && candidate === 'mono') audio.channelCount = {ideal: 1};
+  if (supported.channelCount && candidate === 'stereo') audio.channelCount = {ideal: 2};
+  return {audio, video: false};
+}
+
+function stopMicTestStream() {
+  if (micTestStream) micTestStream.getTracks().forEach((track) => track.stop());
+  micTestStream = null;
+  if (micAudioContext) {
+    try { micAudioContext.close(); } catch {}
+  }
+  micAudioContext = null;
+  setMicMeter(0);
+}
+
+async function openMicCandidate(candidate) {
+  if (!navigator.mediaDevices?.getUserMedia) throw new Error('Microphone access is not supported in this browser.');
+  return navigator.mediaDevices.getUserMedia(micConstraints(candidate));
+}
+
+function micChannelDescription(stream, requestedMode = '') {
+  const settings = stream?.getAudioTracks?.()[0]?.getSettings?.() || {};
+  const channelCount = Number(settings.channelCount || 0);
+  if (channelCount) return `${channelCount} channel${channelCount === 1 ? '' : 's'}`;
+  if (requestedMode === 'mono') return 'mono requested';
+  if (requestedMode === 'stereo') return 'stereo requested';
+  return 'device default';
+}
+
+async function measureMicSignal(stream, durationMs = 1900) {
+  const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextCtor) return {peak: 0.02, measured: false};
+  micAudioContext = new AudioContextCtor();
+  try { await micAudioContext.resume(); } catch {}
+  const analyser = micAudioContext.createAnalyser();
+  analyser.fftSize = 1024;
+  analyser.smoothingTimeConstant = 0.55;
+  const source = micAudioContext.createMediaStreamSource(stream);
+  source.connect(analyser);
+  const samples = new Float32Array(analyser.fftSize);
+  let peak = 0;
+  const started = performance.now();
+  await new Promise((resolve) => {
+    const sample = (now) => {
+      analyser.getFloatTimeDomainData(samples);
+      let sum = 0;
+      for (let i = 0; i < samples.length; i += 1) sum += samples[i] * samples[i];
+      const rms = Math.sqrt(sum / samples.length);
+      peak = Math.max(peak, rms);
+      setMicMeter(Math.min(1, rms * 9));
+      if (now - started < durationMs) requestAnimationFrame(sample);
+      else resolve();
+    };
+    requestAnimationFrame(sample);
+  });
+  try { source.disconnect(); } catch {}
+  return {peak, measured: true};
+}
+
+async function testMicrophone() {
+  if (!els.testMicBtn) return;
+  if (state.voiceListening && speechRecognition) {
+    try { speechRecognition.stop(); } catch {}
+  }
+  stopMicTestStream();
+  els.testMicBtn.disabled = true;
+  els.testMicBtn.textContent = 'Testing…';
+  setVoiceStatus('Speak normally for a couple of seconds…', 'listening');
+  const selected = els.micMode?.value || 'auto';
+  let openedWithoutSignal = null;
+  try {
+    for (const candidate of micCandidates(selected)) {
+      let stream = null;
+      try {
+        stream = await openMicCandidate(candidate);
+        micTestStream = stream;
+        const signal = await measureMicSignal(stream);
+        const channelText = micChannelDescription(stream, candidate);
+        if (!signal.measured || signal.peak > 0.006) {
+          state.lastWorkingMicMode = candidate;
+          setVoiceStatus(`Microphone working • ${candidate === 'default' ? 'Auto/default' : candidate[0].toUpperCase() + candidate.slice(1)} • ${channelText}`, 'success');
+          showToast('Microphone test passed');
+          return;
+        }
+        openedWithoutSignal = {candidate, channelText};
+      } catch (error) {
+        console.info(`Mic test failed for ${candidate}`, error);
+      } finally {
+        if (stream) stream.getTracks().forEach((track) => track.stop());
+        micTestStream = null;
+        if (micAudioContext) {
+          try { await micAudioContext.close(); } catch {}
+          micAudioContext = null;
+        }
+        setMicMeter(0);
+      }
+    }
+    if (openedWithoutSignal) {
+      setVoiceStatus(`The microphone opened (${openedWithoutSignal.channelText}) but I did not detect your voice. Try the other Mono/Stereo setting and test again.`, 'warning');
+    } else {
+      setVoiceStatus('I could not open the microphone. Check Safari/site microphone permission, then try Mono or Stereo.', 'error');
+    }
+  } finally {
+    stopMicTestStream();
+    els.testMicBtn.disabled = false;
+    els.testMicBtn.textContent = 'Test microphone';
+  }
+}
+
+async function prepareMicrophoneForSpeech() {
+  const selected = els.micMode?.value || 'auto';
+  let lastError = null;
+  for (const candidate of micCandidates(selected)) {
+    let stream = null;
+    try {
+      stream = await openMicCandidate(candidate);
+      state.lastWorkingMicMode = candidate;
+      const description = micChannelDescription(stream, candidate);
+      stream.getTracks().forEach((track) => track.stop());
+      return {candidate, description};
+    } catch (error) {
+      lastError = error;
+      if (stream) stream.getTracks().forEach((track) => track.stop());
+    }
+  }
+  throw lastError || new Error('Microphone could not be opened.');
+}
+
+function speechRecognitionConstructor() {
+  return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+}
+
+function updateTellPalButton(isListening) {
+  if (!els.tellPalBtn) return;
+  els.tellPalBtn.classList.toggle('listening', Boolean(isListening));
+  els.tellPalBtn.innerHTML = isListening
+    ? '<span class="tell-pal-icon">■</span><span><strong>Stop listening</strong><small>Tap when you are finished</small></span>'
+    : '<span class="tell-pal-icon">🎙️</span><span><strong>Tell Pal</strong><small>Speak your idea instead of typing</small></span>';
+}
+
+function stopTellPal() {
+  if (!speechRecognition) return;
+  try { speechRecognition.stop(); } catch {}
+}
+
+async function startTellPal() {
+  if (state.voiceListening) {
+    stopTellPal();
+    return;
+  }
+  const RecognitionCtor = speechRecognitionConstructor();
+  if (!RecognitionCtor) {
+    setVoiceStatus('Speech-to-text is not available in this browser. You can still use the iPhone keyboard microphone.', 'warning');
+    return;
+  }
+
+  setVoiceStatus('Checking microphone…', 'working');
+  try {
+    const mic = await prepareMicrophoneForSpeech();
+    setVoiceStatus(`Mic ready • ${mic.description}. Start speaking…`, 'listening');
+  } catch (error) {
+    console.error('Tell Pal microphone preparation failed', error);
+    const denied = String(error?.name || '').toLowerCase().includes('notallowed');
+    setVoiceStatus(denied ? 'Microphone permission is blocked. Allow microphone access for this site, then try again.' : 'Microphone could not open. Try Mic Settings → Mono or Stereo, then Test microphone.', 'error');
+    return;
+  }
+
+  const recognition = new RecognitionCtor();
+  speechRecognition = recognition;
+  recognition.lang = 'en-US';
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.maxAlternatives = 1;
+  voiceBaseText = els.description?.value.trim() || '';
+  voiceTranscript = '';
+
+  recognition.onstart = () => {
+    state.voiceListening = true;
+    updateTellPalButton(true);
+    setVoiceStatus('Listening… tell Pal what you want to create.', 'listening');
+  };
+  recognition.onresult = (event) => {
+    let heard = '';
+    for (let i = 0; i < event.results.length; i += 1) {
+      heard += `${event.results[i][0]?.transcript || ''} `;
+    }
+    voiceTranscript = heard.trim();
+    const combined = [voiceBaseText, voiceTranscript].filter(Boolean).join(voiceBaseText && voiceTranscript ? ' ' : '');
+    if (els.description) els.description.value = combined;
+    setVoiceStatus(voiceTranscript ? 'Listening… I’m hearing you.' : 'Listening… start speaking.', 'listening');
+  };
+  recognition.onerror = (event) => {
+    console.info('Tell Pal speech recognition error', event?.error);
+    const messages = {
+      'not-allowed': 'Microphone permission was denied. Allow microphone access and try again.',
+      'audio-capture': 'No usable microphone audio was found. Try Mic Settings → Mono or Stereo.',
+      'no-speech': 'I did not hear speech. Tap Tell Pal and try again.',
+      'network': 'Speech recognition could not connect. Check your connection and try again.',
+    };
+    setVoiceStatus(messages[event?.error] || 'Tell Pal stopped listening. Try again or test the microphone.', 'warning');
+  };
+  recognition.onend = () => {
+    state.voiceListening = false;
+    updateTellPalButton(false);
+    speechRecognition = null;
+    if (voiceTranscript) {
+      setVoiceStatus('Added to your project brief. You can edit it or tap Make It For Me.', 'success');
+      showToast('Voice brief added');
+    } else if (els.voiceStatus?.dataset.state === 'listening') {
+      setVoiceStatus('Ready when you are.');
+    }
+  };
+
+  try {
+    recognition.start();
+  } catch (error) {
+    console.error(error);
+    state.voiceListening = false;
+    updateTellPalButton(false);
+    speechRecognition = null;
+    setVoiceStatus('Tell Pal could not start. Test the microphone and try again.', 'error');
+  }
+}
+
+function loadMicPreference() {
+  const saved = localStorage.getItem(MIC_MODE_STORAGE_KEY);
+  if (els.micMode && ['auto', 'mono', 'stereo'].includes(saved || '')) els.micMode.value = saved;
+}
+
+els.tellPalBtn?.addEventListener('click', startTellPal);
+els.testMicBtn?.addEventListener('click', testMicrophone);
+els.micMode?.addEventListener('change', () => {
+  localStorage.setItem(MIC_MODE_STORAGE_KEY, els.micMode.value);
+  state.lastWorkingMicMode = '';
+  setVoiceStatus(`${els.micMode.options[els.micMode.selectedIndex]?.text || 'Microphone mode'} selected. Test it if you are having trouble.`);
+});
+
 function showAuthNotice(message) {
   els.authNotice.textContent = message;
   els.authNotice.classList.remove('hidden');
   clearTimeout(showAuthNotice.timer);
   showAuthNotice.timer = setTimeout(() => els.authNotice.classList.add('hidden'), 6500);
+}
+
+function clearAuthNotice() {
+  clearTimeout(showAuthNotice.timer);
+  els.authNotice.textContent = '';
+  els.authNotice.classList.add('hidden');
 }
 
 function escapeHtml(text) {
@@ -415,6 +750,11 @@ function setOneTapDefaults() {
 }
 
 els.includeReel.addEventListener('change', updateReelModeVisibility);
+els.briefStarterBtns?.forEach((button) => button.addEventListener('click', () => {
+  els.description.value = button.dataset.briefStarter || '';
+  els.description.focus();
+  showToast('Direction added — edit it or tap Make It For Me');
+}));
 els.photoInput.addEventListener('change', (event) => addFiles([...event.target.files]));
 els.videoInput.addEventListener('change', (event) => addFiles([...event.target.files]));
 
@@ -432,21 +772,26 @@ els.videoInput.addEventListener('change', (event) => addFiles([...event.target.f
 });
 els.dropZone.addEventListener('drop', (event) => addFiles([...event.dataTransfer.files]));
 
+function setMediaBusy(isBusy) {
+  state.mediaBusy = Boolean(isBusy);
+  if (!state.isLoading) {
+    els.generateBtn.disabled = state.mediaBusy;
+    els.oneTapBtn.disabled = state.mediaBusy;
+  }
+}
+
 async function addFiles(files) {
+  const mediaSession = state.mediaSession;
   const images = files.filter((file) => /^image\/(jpeg|png|webp)$/.test(file.type));
   const videos = files.filter((file) => String(file.type || '').startsWith('video/'));
 
-  const hasAttachedVideo = Boolean(state.videoSource?.blob || state.videoSource?.objectUrl);
-  if (videos.length > MAX_VIDEOS || (videos.length && hasAttachedVideo)) {
-    showToast('One video per project for now');
-  }
-
-  // A project restored from an older build may have analysis frames but not the original
-  // video blob. Choosing the video again replaces those old frames and restores moving footage.
-  if (videos.length && state.videoSource && !hasAttachedVideo) {
+  const currentVideos = allVideoSources();
+  const baseVideoCount = currentVideos.length;
+  if (videos.length && !currentVideos.length && state.photos.some((photo) => photo.sourceType === 'videoFrame')) {
     state.photos = state.photos.filter((photo) => photo.sourceType !== 'videoFrame');
-    state.videoSource = null;
   }
+  const remainingVideoSlots = Math.max(0, MAX_VIDEOS - currentVideos.length);
+  if (videos.length > remainingVideoSlots) showToast(`Up to ${MAX_VIDEOS} videos per project`);
 
   const slots = () => Math.max(0, MAX_IMAGES - state.photos.length);
 
@@ -454,48 +799,72 @@ async function addFiles(files) {
     if (!slots()) break;
     try {
       const optimized = await optimizeImage(file);
+      if (mediaSession !== state.mediaSession) return;
       state.photos.push({name: file.name, dataUrl: optimized, sourceType: 'photo'});
     } catch {
       showToast(`Could not read ${file.name}`);
     }
   }
 
-  if (videos.length && !state.videoSource && slots()) {
-    const file = videos[0];
+  const videosToAdd = videos.slice(0, remainingVideoSlots);
+  if (videosToAdd.length && !slots()) showToast(`Maximum of ${MAX_IMAGES} media items`);
+
+  if (videosToAdd.length && slots()) {
+    setMediaBusy(true);
+    let addedVideoCount = 0;
     try {
-      showToast('Sampling useful video frames…');
-      const extracted = await extractVideoFrames(file, Math.min(VIDEO_FRAME_COUNT, slots()));
-      extracted.frames.forEach((frame, index) => {
-        state.photos.push({
-          name: `${file.name} — frame ${index + 1}`,
-          dataUrl: frame.dataUrl,
-          sourceType: 'videoFrame',
-          videoName: file.name,
-          videoTime: frame.time,
+      for (let i = 0; i < videosToAdd.length; i += 1) {
+        if (!slots()) break;
+        const file = videosToAdd[i];
+        const frameTarget = Math.min(slots(), videosToAdd.length === 1 ? VIDEO_FRAME_COUNT : 2);
+        if (!frameTarget) break;
+        showToast(`Preparing video ${addedVideoCount + 1} of ${videosToAdd.length}…`);
+        const extracted = await extractVideoFrames(file, frameTarget);
+        if (mediaSession !== state.mediaSession) return;
+        const videoId = makeId('video');
+        extracted.frames.forEach((frame, index) => {
+          state.photos.push({
+            name: `${file.name} — frame ${index + 1}`,
+            dataUrl: frame.dataUrl,
+            sourceType: 'videoFrame',
+            videoName: file.name,
+            videoTime: frame.time,
+            videoId,
+          });
         });
-      });
-      const videoId = makeId('video');
-      const persisted = await saveVideoBlobToDb(videoId, file);
-      state.videoSource = {
-        id: videoId,
-        name: file.name,
-        duration: extracted.duration,
-        frameCount: extracted.frames.length,
-        type: file.type || 'video/mp4',
-        size: file.size || 0,
-        blob: file,
-        objectUrl: URL.createObjectURL(file),
-        persisted,
-      };
-      showToast(`Video ready — moving footage kept for Reel + ${extracted.frames.length} analysis frames`);
+        const persisted = await saveVideoBlobToDb(videoId, file);
+        if (mediaSession !== state.mediaSession) {
+          if (persisted) await deleteVideoBlobFromDb(videoId);
+          return;
+        }
+        const source = {
+          id: videoId,
+          name: file.name,
+          duration: extracted.duration,
+          frameCount: extracted.frames.length,
+          type: file.type || 'video/mp4',
+          size: file.size || 0,
+          clipIndex: baseVideoCount + addedVideoCount + 1,
+          blob: file,
+          objectUrl: URL.createObjectURL(file),
+          persisted,
+        };
+        state.videoSources.push(source);
+        addedVideoCount += 1;
+      }
+      syncPrimaryVideoSource();
+      clearAuthNotice();
+      if (addedVideoCount) showToast(`${addedVideoCount} video${addedVideoCount === 1 ? '' : 's'} ready for editing`);
     } catch (error) {
       console.error(error);
-      showAuthNotice('That video could not be sampled. Try a different MP4 or MOV clip.');
+      if (mediaSession === state.mediaSession) showAuthNotice('One of the videos could not be sampled. Try a different MP4 or MOV clip.');
+    } finally {
+      if (mediaSession === state.mediaSession) setMediaBusy(false);
     }
   }
 
   if (!images.length && !videos.length) showToast('Choose a photo or video file');
-  if (!slots() && images.length + videos.length > 0) showToast(`Maximum of ${MAX_IMAGES} images/video frames`);
+  if (!slots() && images.length + videos.length > 0) showToast(`Maximum of ${MAX_IMAGES} media items`);
 
   renderPhotos();
   refreshSelectedPhotoOptions();
@@ -583,14 +952,39 @@ function optimizeImage(file) {
   });
 }
 
+function renderMediaSummary() {
+  if (!els.mediaSummary) return;
+  const photos = state.photos.filter((photo) => photo.sourceType !== 'videoFrame').length;
+  const videos = allVideoSources().length;
+  if (!photos && !videos) {
+    els.mediaSummary.classList.add('hidden');
+    els.mediaSummary.textContent = '';
+    return;
+  }
+  const bits = [];
+  if (photos) bits.push(`${photos} photo${photos === 1 ? '' : 's'}`);
+  if (videos) bits.push(`${videos} video${videos === 1 ? '' : 's'}`);
+  const frameCount = state.photos.filter((photo) => photo.sourceType === 'videoFrame').length;
+  els.mediaSummary.innerHTML = `<span>✓ Media ready</span><strong>${bits.join(' • ')}</strong>${frameCount ? `<small>${frameCount} video snapshots are only for analysis</small>` : ''}`;
+  els.mediaSummary.classList.remove('hidden');
+}
+
 function renderPhotos() {
   let photoNumber = 0;
-  let videoFrameNumber = 0;
+  const frameCounts = new Map();
+  const videoIndexes = new Map(allVideoSources().map((source, index) => [source.id, index + 1]));
   els.photoGrid.innerHTML = state.photos.map((photo, index) => {
     const isVideo = photo.sourceType === 'videoFrame';
-    if (isVideo) videoFrameNumber += 1;
-    else photoNumber += 1;
-    const badge = isVideo ? `VIDEO F${videoFrameNumber}` : `PHOTO ${photoNumber}`;
+    let badge = '';
+    if (isVideo) {
+      const current = (frameCounts.get(photo.videoId || photo.videoName || 'video') || 0) + 1;
+      frameCounts.set(photo.videoId || photo.videoName || 'video', current);
+      const videoNumber = videoIndexes.get(photo.videoId) || 1;
+      badge = `VIDEO ${videoNumber} F${current}`;
+    } else {
+      photoNumber += 1;
+      badge = `PHOTO ${photoNumber}`;
+    }
     const time = isVideo && Number.isFinite(photo.videoTime) ? `<span class="video-time">${photo.videoTime.toFixed(1)}s</span>` : '';
     return `<div class="photo-item">
       <img src="${photo.dataUrl}" alt="${isVideo ? 'Video frame' : 'Photo'} ${index + 1}" />
@@ -600,9 +994,22 @@ function renderPhotos() {
   }).join('');
 
   els.photoGrid.querySelectorAll('.photo-remove').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      state.photos.splice(Number(btn.dataset.index), 1);
-      if (!state.photos.some((photo) => photo.sourceType === 'videoFrame')) { releaseCurrentVideoUrl(); state.videoSource = null; }
+    btn.addEventListener('click', async () => {
+      const removed = state.photos.splice(Number(btn.dataset.index), 1)[0];
+      if (removed?.sourceType === 'videoFrame' && removed.videoId && !state.photos.some((photo) => photo.videoId === removed.videoId)) {
+        const source = videoSourceById(removed.videoId);
+        state.videoSources = allVideoSources().filter((item) => item.id !== removed.videoId);
+        syncPrimaryVideoSource();
+        if (source?.objectUrl) {
+          try { URL.revokeObjectURL(source.objectUrl); } catch {}
+        }
+        await deleteVideoBlobFromDb(removed.videoId);
+      }
+      if (!state.photos.some((photo) => photo.sourceType === 'videoFrame')) {
+        releaseCurrentVideoUrl();
+        state.videoSources = [];
+        state.videoSource = null;
+      }
       state.selectedPhotoIndex = Math.min(state.selectedPhotoIndex, Math.max(0, state.photos.length - 1));
       clearEditedPreview();
       renderPhotos();
@@ -610,8 +1017,8 @@ function renderPhotos() {
       renderToolsState();
     });
   });
+  renderMediaSummary();
 }
-
 
 // In-app multi-shot photo capture (beta). Choosing photos from the iPhone library remains the highest-quality path.
 function remainingMediaSlots() {
@@ -753,8 +1160,8 @@ els.photoCameraDialog?.addEventListener('close', () => {
 
 // In-app video recorder (beta). Choosing an existing video remains the recommended path.
 async function openCameraRecorder() {
-  if (state.videoSource) {
-    showToast('This project already has a video');
+  if (allVideoSources().length >= MAX_VIDEOS) {
+    showToast(`This project already has ${MAX_VIDEOS} videos`);
     return;
   }
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
@@ -882,7 +1289,7 @@ els.cameraDialog.addEventListener('close', () => {
   if (cameraStream) stopCameraTracks();
 });
 
-function setPackageLoading(isLoading, label = '✨ Create Social Package') {
+function setPackageLoading(isLoading, label = '🎛️ Use My Settings') {
   state.isLoading = isLoading;
   els.generateBtn.disabled = isLoading;
   els.oneTapBtn.disabled = isLoading;
@@ -890,7 +1297,9 @@ function setPackageLoading(isLoading, label = '✨ Create Social Package') {
     btn.disabled = isLoading || !state.result;
     btn.classList.toggle('is-busy', isLoading);
   });
-  els.generateLabel.textContent = isLoading ? label : '✨ Create Social Package';
+  els.generateLabel.textContent = isLoading ? label : '🎛️ Use My Settings';
+  const oneTapBusy = isLoading && String(label).toLowerCase().includes('one-tap');
+  if (els.oneTapBtn) els.oneTapBtn.innerHTML = oneTapBusy ? '<span>✨ Pal is building…</span>' : '<span>✨ Make It For Me</span><span aria-hidden="true">→</span>';
   if (!isLoading) refreshRefineButtons();
 }
 
@@ -934,13 +1343,20 @@ function buildPayload(action = 'generate', refineInstruction = '', extras = {}) 
       imageNumber: index + 1,
       sourceType: photo.sourceType === 'videoFrame' ? 'videoFrame' : 'photo',
       name: photo.name || '',
+      videoName: photo.videoName || '',
+      videoId: photo.videoId || '',
       videoTime: Number.isFinite(photo.videoTime) ? Number(photo.videoTime.toFixed(2)) : null,
     })),
-    videoContext: state.videoSource ? {
-      ...serializableVideoSource(state.videoSource),
-      frameCount: videoFrames.length,
-      frameTimes: videoFrames.map((photo) => Number(photo.videoTime || 0).toFixed(1)),
+    videoContext: primaryVideoSource() ? {
+      ...serializableVideoSource(primaryVideoSource()),
+      frameCount: videoFrames.filter((photo) => !photo.videoId || photo.videoId === primaryVideoSource()?.id).length,
+      frameTimes: videoFrames.filter((photo) => !photo.videoId || photo.videoId === primaryVideoSource()?.id).map((photo) => Number(photo.videoTime || 0).toFixed(1)),
     } : null,
+    videoContexts: serializableVideoSources().map((source) => ({
+      ...serializableVideoSource(source),
+      frameCount: videoFrames.filter((photo) => photo.videoId === source.id).length,
+      frameTimes: videoFrames.filter((photo) => photo.videoId === source.id).map((photo) => Number(photo.videoTime || 0).toFixed(1)),
+    })),
     currentResult: action === 'refine' ? state.result : undefined,
     refineInstruction: action === 'refine' ? refineInstruction : undefined,
   };
@@ -948,6 +1364,10 @@ function buildPayload(action = 'generate', refineInstruction = '', extras = {}) 
 
 async function runPackageRequest(action = 'generate', refineInstruction = '', extras = {}) {
   const description = els.description.value.trim();
+  if (state.mediaBusy) {
+    showToast('Video is still being prepared — one moment');
+    return null;
+  }
   const totalChars = state.photos.reduce((sum, photo) => sum + photo.dataUrl.length, 0);
 
   if (action === 'generate' && !description && !state.photos.length) {
@@ -985,6 +1405,7 @@ async function runPackageRequest(action = 'generate', refineInstruction = '', ex
     await saveCurrentProject();
     els.apiStatus.textContent = 'AI ready';
     els.apiStatus.className = 'status-pill live';
+    return data.result;
   } catch (error) {
     console.error(error);
     const code = String(error?.code || '');
@@ -992,10 +1413,26 @@ async function runPackageRequest(action = 'generate', refineInstruction = '', ex
     else if (code.includes('resource-exhausted')) showAuthNotice('The social-content limit was reached. Try again a little later.');
     else if (code.includes('invalid-argument')) showAuthNotice(error?.message || 'Please check the information and media and try again.');
     else showAuthNotice(error?.message || 'The AI request could not be completed.');
+    return null;
   } finally {
     setPackageLoading(false);
   }
 }
+
+function normalizedWords(text) {
+  return String(text || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
+}
+
+function textSimilarity(a, b) {
+  const left = new Set(normalizedWords(a));
+  const right = new Set(normalizedWords(b));
+  if (!left.size && !right.size) return 1;
+  const intersection = [...left].filter((word) => right.has(word)).length;
+  const union = new Set([...left, ...right]).size || 1;
+  return intersection / union;
+}
+
+const REFINE_LABELS = {shorter: 'Shorter', more_fun: 'More Fun', less_salesy: 'Less Salesy', try_another: 'Try Another'};
 
 els.generateBtn.addEventListener('click', () => runPackageRequest('generate'));
 els.oneTapBtn.addEventListener('click', () => {
@@ -1004,13 +1441,23 @@ els.oneTapBtn.addEventListener('click', () => {
   runPackageRequest('generate', '', {oneTap: true});
 });
 els.refineBtns.forEach((btn) => btn.addEventListener('click', async () => {
-  const instruction = REFINE_INSTRUCTIONS[btn.dataset.refine];
+  const refineKey = btn.dataset.refine;
+  const instruction = REFINE_INSTRUCTIONS[refineKey];
   if (!instruction || btn.disabled) return;
-  if (btn.dataset.refine === 'try_another') state.assetStyleIndex = (state.assetStyleIndex + 1) % 3;
+  if (refineKey === 'try_another' || refineKey === 'more_fun') state.assetStyleIndex = (state.assetStyleIndex + 1) % 3;
   const original = btn.textContent;
+  const before = state.result ? structuredClone(state.result) : null;
   btn.textContent = 'Working…';
   try {
-    await runPackageRequest('refine', instruction);
+    let updated = await runPackageRequest('refine', instruction);
+    if (updated && before && (refineKey === 'more_fun' || refineKey === 'try_another')) {
+      const similarity = textSimilarity(before.caption, updated.caption);
+      if (similarity > 0.78) {
+        const stronger = `${instruction} IMPORTANT: The previous attempt stayed too close to the current version. Make the new caption and story unmistakably different in opening, sentence structure, pacing, and wording while keeping facts accurate. Use a fresh angle.`;
+        updated = await runPackageRequest('refine', stronger);
+      }
+    }
+    if (updated) showToast(`Updated — ${REFINE_LABELS[refineKey] || 'new'} version`);
   } finally {
     btn.textContent = original;
     refreshRefineButtons();
@@ -1023,7 +1470,7 @@ function safeText(value, fallback = 'Not generated for this package.') {
 
 function renderResult(result) {
   state.approvedAssets = {feed: false, story: false, reel: false};
-  activateAssetTab('feed');
+  activateAssetTab(allVideoSources().length ? 'reel' : 'feed');
   els.emptyState.classList.add('hidden');
   els.resultsState.classList.remove('hidden');
   document.getElementById('resultHeadline').textContent = result.headline || 'Ready to post';
@@ -1114,37 +1561,110 @@ document.querySelectorAll('.copy-btn').forEach((btn) => {
 });
 
 function resetForNewProject() {
+  state.mediaSession += 1; // invalidates any video sampling still finishing in the background
+  if (state.voiceListening && speechRecognition) {
+    try { speechRecognition.abort(); } catch {}
+  }
+  state.voiceListening = false;
+  speechRecognition = null;
+  voiceBaseText = '';
+  voiceTranscript = '';
+  stopMicTestStream();
+  updateTellPalButton(false);
+  setVoiceStatus('Ready when you are.');
+  setMediaBusy(false);
   releaseCurrentVideoUrl();
   state.photos = [];
   state.result = null;
   state.videoSource = null;
+  state.videoSources = [];
+  state.activeProjectId = null;
   state.selectedPhotoIndex = 0;
-  state.readyAssets = {feed: '', story: '', reelSlides: [], reelBlob: null, reelMime: '', packageBlob: null};
+  state.readyAssets = {feed: '', story: '', storyVideoBlob: null, storyMime: '', reelSlides: [], reelBlob: null, reelMime: '', packageBlob: null};
   state.approvedAssets = {feed: false, story: false, reel: false};
+  state.assetStyleIndex = 0;
   activateAssetTab('feed');
   stopReelPreview();
   els.workerAssets?.classList.add('hidden');
   els.description.value = '';
+  els.photoInput.value = '';
+  els.videoInput.value = '';
+  clearAuthNotice();
   clearEditedPreview();
+  if (els.photoGrid) els.photoGrid.innerHTML = '';
+  if (els.selectedPhoto) els.selectedPhoto.innerHTML = '';
+  if (els.feedAssetPreview) els.feedAssetPreview.removeAttribute('src');
+  if (els.storyAssetPreviewVideo) {
+    try { els.storyAssetPreviewVideo.pause(); } catch {}
+    els.storyAssetPreviewVideo.removeAttribute('src');
+    els.storyAssetPreviewVideo.load?.();
+    els.storyAssetPreviewVideo.classList.add('hidden');
+  }
+  if (els.storyAssetPreview) {
+    els.storyAssetPreview.removeAttribute('src');
+    els.storyAssetPreview.classList.remove('hidden');
+  }
+  if (els.reelPreviewImage) els.reelPreviewImage.removeAttribute('src');
+  if (els.reelPreviewVideo) {
+    try { els.reelPreviewVideo.pause(); } catch {}
+    els.reelPreviewVideo.removeAttribute('src');
+    els.reelPreviewVideo.load?.();
+  }
+  if (els.reelPreviewHook) els.reelPreviewHook.textContent = '';
+  if (els.reelPreviewOverlay) els.reelPreviewOverlay.textContent = '';
+  if (els.assetStatus) els.assetStatus.textContent = '';
+  if (els.reelReadyBadge) els.reelReadyBadge.textContent = 'Ready';
+  if (els.storyReadyBadge) els.storyReadyBadge.textContent = 'Ready';
   renderPhotos();
   refreshSelectedPhotoOptions();
   renderToolsState();
   els.resultsState.classList.add('hidden');
   els.emptyState.classList.remove('hidden');
   activateView('create');
+  showToast('New project ready');
 }
 els.newBtn.addEventListener('click', resetForNewProject);
+els.deleteCurrentBtn?.addEventListener('click', async () => {
+  if (state.activeProjectId) {
+    const project = state.recentProjects.find((item) => item.id === state.activeProjectId);
+    const label = project?.headline || 'this project';
+    if (!window.confirm(`Delete “${label}” from this browser and clear the workspace?`)) return;
+    state.recentProjects = state.recentProjects.filter((item) => item.id !== state.activeProjectId);
+    try { localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(state.recentProjects)); } catch {}
+    const videoIds = [project?.videoSource?.id, ...((project?.videoSources || []).map((item) => item?.id))].filter(Boolean);
+    for (const videoId of videoIds) {
+      if (!state.recentProjects.some((item) => item.videoSource?.id === videoId || (item.videoSources || []).some((source) => source?.id === videoId))) await deleteVideoBlobFromDb(videoId);
+    }
+    renderRecentProjects();
+    resetForNewProject();
+    showToast('Current project deleted');
+    return;
+  }
+  if (!state.photos.length && !state.result && !els.description.value.trim()) {
+    showToast('There is no current project to delete');
+    return;
+  }
+  if (!window.confirm('Clear the current unsaved workspace?')) return;
+  resetForNewProject();
+  showToast('Current workspace cleared');
+});
 
 function refreshSelectedPhotoOptions() {
-  let videoFrameNumber = 0;
   let photoNumber = 0;
+  const frameCounts = new Map();
+  const videoIndexes = new Map(allVideoSources().map((source, index) => [source.id, index + 1]));
   els.selectedPhoto.innerHTML = state.photos.map((photo, index) => {
     const isVideoFrame = photo.sourceType === 'videoFrame';
-    if (isVideoFrame) videoFrameNumber += 1;
-    else photoNumber += 1;
-    const label = isVideoFrame
-      ? `Video frame ${videoFrameNumber}${Number.isFinite(photo.videoTime) ? ` (${photo.videoTime.toFixed(1)}s)` : ''}`
-      : `Photo ${photoNumber}`;
+    let label;
+    if (isVideoFrame) {
+      const current = (frameCounts.get(photo.videoId || photo.videoName || 'video') || 0) + 1;
+      frameCounts.set(photo.videoId || photo.videoName || 'video', current);
+      const videoNumber = videoIndexes.get(photo.videoId) || 1;
+      label = `Video ${videoNumber} frame ${current}${Number.isFinite(photo.videoTime) ? ` (${photo.videoTime.toFixed(1)}s)` : ''}`;
+    } else {
+      photoNumber += 1;
+      label = `Photo ${photoNumber}`;
+    }
     return `<option value="${index}">${label}${photo.name ? ` — ${escapeHtml(photo.name)}` : ''}</option>`;
   }).join('');
   els.selectedPhoto.disabled = !state.photos.length;
@@ -1498,12 +2018,36 @@ function chooseStoryPhotoIndex(leadIndex) {
   return (leadIndex + 1) % state.photos.length;
 }
 
+function editingIntentFromDescription() {
+  const text = String(els.description?.value || '').toLowerCase();
+  const fast = /energetic|energy|quick|fast|punchy|upbeat|lively|exciting|fun|dynamic|quick cuts?|snappy/.test(text);
+  const slow = /elegant|calm|relaxed|refined|luxur|soothing|gentle|slow|cinematic|smooth|serene|polished/.test(text);
+  const tour = /store tour|tour|whole store|entire store|overview|show the store|walk through|walkthrough|shelves|selection/.test(text);
+  const detail = /close[- ]?up|detail|label|product|feature|focus on|spotlight/.test(text);
+  const preferVideo = /video|videos|footage|reel|movement|moving|clips?/.test(text);
+  const preserveFullVideo = /full video|whole video|entire video|do not cut|don't cut|uncut|keep.*whole/.test(text);
+  const short = /short|brief|under \d+ seconds?|very quick/.test(text);
+  const pace = fast && !slow ? 'fast' : slow && !fast ? 'smooth' : 'balanced';
+  return {
+    pace,
+    tour,
+    detail,
+    preferVideo,
+    preserveFullVideo,
+    clipMs: short ? 1300 : pace === 'fast' ? 1550 : pace === 'smooth' ? 2700 : 2050,
+    photoMs: short ? 1300 : pace === 'fast' ? 1650 : pace === 'smooth' ? 2900 : 2200,
+    maxSlides: short ? 4 : pace === 'fast' ? 6 : pace === 'smooth' ? 5 : 6,
+    transitionEdge: pace === 'fast' ? 0.035 : pace === 'smooth' ? 0.11 : 0.07,
+  };
+}
+
 function chooseReelMotion(item, photo, index, total) {
   const text = String(typeof item === 'string'
     ? item
     : `${item?.title || ''} ${item?.detail || ''} ${item?.note || ''} ${item?.overlayText || ''}`).toLowerCase();
   const portrait = Boolean(photo?.height && photo?.width && photo.height / photo.width > 1.18);
   const veryWide = Boolean(photo?.width && photo?.height && photo.width / photo.height > 1.35);
+  const intent = editingIntentFromDescription();
 
   if (/close|detail|label|single|feature|focus|product/.test(text)) return index % 2 ? 'zoom_in_soft' : 'zoom_in';
   if (/wide|shelf|display|range|tour|overview|selection|wall/.test(text)) {
@@ -1512,6 +2056,9 @@ function chooseReelMotion(item, photo, index, total) {
   }
   if (/top|upper/.test(text)) return 'pan_up';
   if (/bottom|lower/.test(text)) return 'pan_down';
+  if (intent.tour && !intent.detail) return portrait ? (index % 2 ? 'pan_down' : 'pan_up') : (index % 2 ? 'pan_left' : 'pan_right');
+  if (intent.detail && !intent.tour) return index % 2 ? 'zoom_in_soft' : 'zoom_in';
+  if (intent.pace === 'smooth' && index % 3 === 2) return 'still';
   if (index === 0) return veryWide ? 'pan_right' : 'zoom_in';
   if (index === total - 1) return portrait ? 'pan_down' : 'zoom_out';
   const fallback = portrait
@@ -1644,125 +2191,173 @@ function reelDurationMs(item) {
   return 2200;
 }
 
-function videoSegmentForFrame(photo, requestedMs = 2200) {
-  const duration = Number(state.videoSource?.duration || 0);
-  if (!duration || !Number.isFinite(photo?.videoTime)) return null;
-
-  const frameTimes = state.photos
-    .filter((item) => item.sourceType === 'videoFrame' && Number.isFinite(item.videoTime))
-    .map((item) => Number(item.videoTime))
-    .sort((a, b) => a - b);
-  const current = Number(photo.videoTime);
-  const frameIndex = Math.max(0, frameTimes.findIndex((time) => Math.abs(time - current) < 0.03));
-  const prev = frameIndex > 0 ? frameTimes[frameIndex - 1] : null;
-  const next = frameIndex >= 0 && frameIndex < frameTimes.length - 1 ? frameTimes[frameIndex + 1] : null;
-
-  let lower = prev == null ? 0 : (prev + current) / 2;
-  let upper = next == null ? duration : (current + next) / 2;
-  if (duration > 1.2 && lower < 0.12) lower = 0.12; // skip the hand-motion that often happens right as recording starts
-  if (upper > duration - 0.05) upper = Math.max(lower + 0.25, duration - 0.05);
-
-  const available = Math.max(0.25, upper - lower);
-  const requested = clamp(Number(requestedMs || 2200) / 1000, 0.8, 5);
-  const target = Math.min(available, requested);
-  let start = current - target / 2;
-  start = clamp(start, lower, Math.max(lower, upper - target));
-  const end = Math.min(duration, start + target);
-  return {start, end, duration: Math.max(250, Math.round((end - start) * 1000))};
+function continuousVideoSegment(source = primaryVideoSource()) {
+  const duration = Number(source?.duration || 0);
+  if (!duration) return null;
+  const start = duration > 1.2 ? 0.08 : 0;
+  const safeEnd = Math.max(start + 0.25, duration - 0.03);
+  // Preserve the full recording for normal short clips. Earlier builds capped the
+  // source too aggressively, which could make a good video feel abruptly cut off.
+  if (duration <= 30) return {start, end: safeEnd, duration: Math.round((safeEnd - start) * 1000)};
+  const end = Math.min(safeEnd, start + 20);
+  return {start, end, duration: Math.round((end - start) * 1000)};
 }
 
-function buildReelSlides() {
-  if (!state.photos.length) return [];
-  const plan = Array.isArray(state.result?.reelPlan) ? state.result.reelPlan : [];
-  const desiredCount = Math.min(6, Math.max(3, plan.length || state.photos.length));
-  const hasLiveVideo = Boolean(state.videoSource?.objectUrl || state.videoSource?.blob);
-  const nonVideoPhotos = state.photos.filter((photo) => photo.sourceType !== 'videoFrame');
-  const videoFrames = state.photos.filter((photo) => photo.sourceType === 'videoFrame');
+function makeVideoSegmentFromFrame(photo, source, item = null, fallbackDuration = 1800) {
+  if (!photo || !source) return null;
+  const intent = editingIntentFromDescription();
+  const requested = reelDurationMs(item || '') || fallbackDuration || intent.clipMs;
+  const paced = intent.pace === 'fast' ? requested * 0.78 : intent.pace === 'smooth' ? requested * 1.22 : requested;
+  const durationSec = Math.min(intent.pace === 'smooth' ? 4.0 : 3.2, Math.max(1.15, paced / 1000));
+  const midpoint = Number(photo.videoTime || 0);
+  const start = Math.max(0, Math.min(midpoint - durationSec * 0.45, Math.max(0, Number(source.duration || 0) - durationSec - 0.03)));
+  const end = Math.min(Number(source.duration || 0), start + durationSec);
+  return {
+    dataUrl: photo.dataUrl,
+    overlay: String(item?.overlayText || state.result?.overlayText || ''),
+    title: typeof item === 'object' ? String(item.title || '') : 'Video clip',
+    duration: Math.round((end - start) * 1000),
+    sourceIndex: state.photos.indexOf(photo),
+    sourceType: 'video',
+    sourceVideoId: source.id,
+    videoStart: start,
+    videoEnd: end,
+    motionType: 'video',
+  };
+}
 
-  // If the project is just one short video, use the real moving clip once rather than
-  // turning its three analysis frames into three separate animated stills.
-  if (hasLiveVideo && videoFrames.length && !nonVideoPhotos.length && Number(state.videoSource?.duration || 0) <= 8) {
-    const duration = Number(state.videoSource.duration || 0);
-    const start = duration > 1.2 ? 0.12 : 0;
-    const end = Math.max(start + 0.25, duration - 0.05);
-    return [{
-      dataUrl: videoFrames[Math.floor(videoFrames.length / 2)]?.dataUrl || videoFrames[0].dataUrl,
-      overlay: String(state.result?.reelHook || state.result?.overlayText || ''),
-      title: 'Original video',
-      duration: Math.round((end - start) * 1000),
-      sourceIndex: state.photos.indexOf(videoFrames[Math.floor(videoFrames.length / 2)] || videoFrames[0]),
-      sourceType: 'video',
-      videoStart: start,
-      videoEnd: end,
-      motionType: 'video',
-    }];
-  }
-
+function fallbackVideoSlides(maxSlides = 3) {
   const slides = [];
-  const usedVideoWindows = [];
-  for (let i = 0; i < desiredCount; i += 1) {
-    const item = plan[i] || null;
-    const mediaIndex = parseReelMediaIndex(item, i);
-    const photo = state.photos[mediaIndex] || state.photos[i % state.photos.length];
-    const overlay = typeof item === 'object' && item?.overlayText
-      ? item.overlayText
-      : (i === 0 ? state.result?.reelHook : state.result?.overlayText) || state.result?.postOverlayText || '';
-    const requestedDuration = reelDurationMs(item);
-
-    if (photo?.sourceType === 'videoFrame' && hasLiveVideo) {
-      const segment = videoSegmentForFrame(photo, requestedDuration);
-      if (segment) {
-        const duplicate = usedVideoWindows.some((window) => Math.abs(window.start - segment.start) < 0.18 && Math.abs(window.end - segment.end) < 0.18);
-        if (!duplicate) {
-          usedVideoWindows.push(segment);
-          slides.push({
-            dataUrl: photo.dataUrl,
-            overlay: String(overlay || ''),
-            title: typeof item === 'object' ? String(item.title || '') : '',
-            duration: segment.duration,
-            sourceIndex: mediaIndex,
-            sourceType: 'video',
-            videoStart: segment.start,
-            videoEnd: segment.end,
-            motionType: 'video',
-          });
-        }
-        continue;
-      }
+  for (const source of allVideoSources()) {
+    const frames = state.photos.filter((photo) => photo.sourceType === 'videoFrame' && (!photo.videoId || photo.videoId === source.id));
+    for (const frame of frames) {
+      if (slides.length >= maxSlides) return slides;
+      const slide = makeVideoSegmentFromFrame(frame, source, {title: 'Video highlight', detail: 'Auto-picked clip', overlayText: state.result?.overlayText || state.result?.reelHook || ''}, editingIntentFromDescription().clipMs);
+      if (slide) slides.push(slide);
     }
-
-    slides.push({
-      dataUrl: photo.dataUrl,
-      overlay: String(overlay || ''),
-      title: typeof item === 'object' ? String(item.title || '') : '',
-      duration: requestedDuration,
-      sourceIndex: mediaIndex,
-      sourceType: 'photo',
-      motionType: chooseReelMotion(item, photo, i, desiredCount),
-    });
   }
-
-  // Ensure a real video project actually contributes moving footage even if the AI plan
-  // happened to reference only a photo-number wording.
-  if (hasLiveVideo && videoFrames.length && !slides.some((slide) => slide.sourceType === 'video')) {
-    const frame = videoFrames[Math.floor(videoFrames.length / 2)];
-    const segment = videoSegmentForFrame(frame, 2400);
-    if (segment) {
-      slides.splice(Math.min(1, slides.length), 0, {
+  if (!slides.length) {
+    const first = primaryVideoSource();
+    const segment = continuousVideoSegment(first);
+    const frame = state.photos.find((photo) => photo.sourceType === 'videoFrame');
+    if (first && segment && frame) {
+      slides.push({
         dataUrl: frame.dataUrl,
-        overlay: String(state.result?.overlayText || ''),
-        title: 'Video clip',
+        overlay: String(state.result?.reelHook || state.result?.overlayText || ''),
+        title: 'Video highlight',
         duration: segment.duration,
         sourceIndex: state.photos.indexOf(frame),
         sourceType: 'video',
+        sourceVideoId: first.id,
         videoStart: segment.start,
         videoEnd: segment.end,
         motionType: 'video',
       });
     }
   }
+  return slides;
+}
 
-  return slides.slice(0, 6);
+function buildReelSlides() {
+  if (!state.photos.length) return [];
+  const intent = editingIntentFromDescription();
+  const maxSlides = intent.maxSlides;
+  const plan = Array.isArray(state.result?.reelPlan) ? state.result.reelPlan : [];
+  const slides = [];
+  const usedPhotoIndexes = new Set();
+  const usedVideoMoments = new Set();
+  const nonVideoPhotos = state.photos.filter((photo) => photo.sourceType !== 'videoFrame');
+  const sources = allVideoSources();
+
+  // Explicit direction such as “use the full/whole video” wins over automatic highlight cutting.
+  if (intent.preserveFullVideo && sources.length === 1 && !nonVideoPhotos.length) {
+    const source = sources[0];
+    const segment = continuousVideoSegment(source);
+    const frame = state.photos.find((photo) => photo.sourceType === 'videoFrame' && (!photo.videoId || photo.videoId === source.id));
+    if (segment && frame) {
+      return [{
+        dataUrl: frame.dataUrl,
+        overlay: String(state.result?.reelHook || state.result?.overlayText || ''),
+        title: 'Full video',
+        duration: segment.duration,
+        sourceIndex: state.photos.indexOf(frame),
+        sourceType: 'video',
+        sourceVideoId: source.id,
+        videoStart: segment.start,
+        videoEnd: segment.end,
+        motionType: 'video',
+      }];
+    }
+  }
+
+  for (let i = 0; i < plan.length && slides.length < maxSlides; i += 1) {
+    const item = plan[i];
+    const mediaIndex = parseReelMediaIndex(item, i);
+    const photo = state.photos[mediaIndex];
+    if (!photo) continue;
+    if (photo.sourceType === 'videoFrame') {
+      const source = videoSourceById(photo.videoId) || primaryVideoSource();
+      const key = `${source?.id || 'video'}:${Math.round(Number(photo.videoTime || 0) * 10)}`;
+      if (usedVideoMoments.has(key)) continue;
+      const clip = makeVideoSegmentFromFrame(photo, source, item, intent.clipMs);
+      if (!clip) continue;
+      usedVideoMoments.add(key);
+      slides.push(clip);
+      continue;
+    }
+    if (usedPhotoIndexes.has(mediaIndex)) continue;
+    usedPhotoIndexes.add(mediaIndex);
+    const aiDuration = reelDurationMs(item);
+    const duration = Math.round(intent.pace === 'fast' ? aiDuration * 0.78 : intent.pace === 'smooth' ? aiDuration * 1.18 : aiDuration);
+    slides.push({
+      dataUrl: photo.dataUrl,
+      overlay: String(item?.overlayText || state.result?.overlayText || ''),
+      title: typeof item === 'object' ? String(item.title || '') : '',
+      duration: Math.max(1200, Math.min(4200, duration)),
+      sourceIndex: mediaIndex,
+      sourceType: 'photo',
+      motionType: chooseReelMotion(item, photo, slides.length, maxSlides),
+    });
+  }
+
+  // If the brief explicitly talks about footage/video but the AI plan didn't select any,
+  // ensure at least one real moving clip is included before filling with stills.
+  if (intent.preferVideo && sources.length && !slides.some((slide) => slide.sourceType === 'video')) {
+    const clip = fallbackVideoSlides(1)[0];
+    if (clip) {
+      slides.unshift(clip);
+      usedVideoMoments.add(`${clip.sourceVideoId || 'video'}:${Math.round(Number(clip.videoStart || 0) * 10)}`);
+    }
+  }
+
+  for (const photo of nonVideoPhotos) {
+    if (slides.length >= maxSlides) break;
+    const mediaIndex = state.photos.indexOf(photo);
+    if (usedPhotoIndexes.has(mediaIndex)) continue;
+    usedPhotoIndexes.add(mediaIndex);
+    slides.push({
+      dataUrl: photo.dataUrl,
+      overlay: String(state.result?.overlayText || ''),
+      title: 'Photo',
+      duration: intent.photoMs,
+      sourceIndex: mediaIndex,
+      sourceType: 'photo',
+      motionType: chooseReelMotion(null, photo, slides.length, maxSlides),
+    });
+  }
+
+  if (slides.length < maxSlides) {
+    const fallbackClips = fallbackVideoSlides(maxSlides - slides.length);
+    for (const clip of fallbackClips) {
+      if (slides.length >= maxSlides) break;
+      const key = `${clip.sourceVideoId || 'video'}:${Math.round(Number(clip.videoStart || 0) * 10)}`;
+      if (usedVideoMoments.has(key)) continue;
+      usedVideoMoments.add(key);
+      slides.push(clip);
+    }
+  }
+
+  return slides.slice(0, maxSlides);
 }
 
 function stopReelPreview() {
@@ -1782,10 +2377,11 @@ function showReelSlide(index, animate = true) {
   els.reelPreviewOverlay.textContent = slide.overlay || '';
   els.reelProgress.style.width = `${((state.reelPreviewIndex + 1) / slides.length) * 100}%`;
 
-  if (slide.sourceType === 'video' && state.videoSource?.objectUrl && els.reelPreviewVideo) {
+  const slideVideoSource = slide.sourceType === 'video' ? (videoSourceById(slide.sourceVideoId) || primaryVideoSource()) : null;
+  if (slide.sourceType === 'video' && slideVideoSource?.objectUrl && els.reelPreviewVideo) {
     els.reelPreviewImage.classList.add('hidden');
     els.reelPreviewVideo.classList.remove('hidden');
-    if (els.reelPreviewVideo.src !== state.videoSource.objectUrl) els.reelPreviewVideo.src = state.videoSource.objectUrl;
+    if (els.reelPreviewVideo.src !== slideVideoSource.objectUrl) els.reelPreviewVideo.src = slideVideoSource.objectUrl;
     const begin = () => {
       try { els.reelPreviewVideo.currentTime = Math.max(0, Number(slide.videoStart || 0)); } catch {}
       if (animate) els.reelPreviewVideo.play().catch(() => {});
@@ -1846,19 +2442,27 @@ function chooseRecordingMimeType() {
   return types.find((type) => globalThis.MediaRecorder?.isTypeSupported?.(type)) || '';
 }
 
+function transitionOpacity(progress) {
+  const edge = editingIntentFromDescription().transitionEdge;
+  if (progress < edge) return Math.max(0, progress / edge);
+  if (progress > 1 - edge) return Math.max(0, (1 - progress) / edge);
+  return 1;
+}
+
 function drawReelCanvasFrame(ctx, img, slide, progress, width, height) {
   ctx.save();
   ctx.fillStyle = '#111';
   ctx.fillRect(0, 0, width, height);
   // Keep the exported Reel clean. Suggested hook/overlay text remains in the
   // app as reference only so the user can add final text while posting.
+  ctx.globalAlpha = transitionOpacity(progress);
   drawAnimatedCoverImage(ctx, img, width, height, slide?.motionType || 'zoom_in_soft', progress);
   ctx.restore();
 }
 
 
-async function createSourceVideoElement() {
-  const src = state.videoSource?.objectUrl;
+async function createSourceVideoElement(source = primaryVideoSource()) {
+  const src = source?.objectUrl;
   if (!src) return null;
   const video = document.createElement('video');
   video.muted = true;
@@ -1891,6 +2495,7 @@ async function renderOriginalVideoSegment(ctx, video, slide, width, height) {
       ctx.save();
       ctx.fillStyle = '#111';
       ctx.fillRect(0, 0, width, height);
+      ctx.globalAlpha = transitionOpacity(progress);
       drawCoverImage(ctx, video, width, height, 1.0, .42);
       ctx.restore();
       if (progress < 1 && Number(video.currentTime || 0) < endSec - 0.015) requestAnimationFrame(tick);
@@ -1899,6 +2504,98 @@ async function renderOriginalVideoSegment(ctx, video, slide, width, height) {
     requestAnimationFrame(tick);
   });
   video.pause();
+}
+
+function drawStoryVideoOverlay(ctx, width, height) {
+  const overlay = state.result?.storyOverlayText || state.result?.postOverlayText || state.result?.headline || '';
+  const cta = state.result?.cta || '';
+  const profile = getProfile();
+  const brand = profile.businessName || 'Social Media Pal';
+  const gradient = ctx.createLinearGradient(0, height * .45, 0, height);
+  gradient.addColorStop(0, 'rgba(0,0,0,0)');
+  gradient.addColorStop(1, 'rgba(0,0,0,.70)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, height);
+  const left = 48;
+  const maxWidth = width - 96;
+  const topY = height * .67;
+  const block = drawTextBlock(ctx, overlay, left, topY, maxWidth, 4, 54, 1.05, '#fff', 850);
+  ctx.font = '600 22px Inter, Arial, sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,.94)';
+  const ctaLines = wrapText(ctx, cta, maxWidth).slice(0, 3);
+  const ctaY = topY + block.height + 24;
+  ctaLines.forEach((line, i) => ctx.fillText(line, left, ctaY + i * 29));
+  ctx.font = '700 17px Inter, Arial, sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,.9)';
+  ctx.fillText(brand, left, height - 58);
+}
+
+async function exportStoryVideo({returnBlob = false} = {}) {
+  const source = primaryVideoSource();
+  const segment = continuousVideoSegment(source);
+  if (!segment || !source?.objectUrl) return null;
+  if (!globalThis.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) {
+    showAuthNotice('This browser can preview the moving Story but cannot export video on this device.');
+    return null;
+  }
+  const mimeType = chooseRecordingMimeType();
+  if (!mimeType) return null;
+  els.downloadStoryBtn.disabled = true;
+  els.downloadStoryBtn.textContent = 'Rendering Story…';
+  if (els.storyReadyBadge) els.storyReadyBadge.textContent = 'Rendering';
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = 720;
+    canvas.height = 1280;
+    const ctx = canvas.getContext('2d');
+    const stream = canvas.captureStream(24);
+    const recorder = new MediaRecorder(stream, {mimeType, videoBitsPerSecond: 5_000_000});
+    const chunks = [];
+    recorder.ondataavailable = (event) => { if (event.data?.size) chunks.push(event.data); };
+    const stopped = new Promise((resolve) => recorder.addEventListener('stop', resolve, {once: true}));
+    recorder.start(500);
+    const video = await createSourceVideoElement(source);
+    await seekVideoElement(video, segment.start);
+    video.playbackRate = 1;
+    await video.play().catch(() => {});
+    const started = performance.now();
+    await new Promise((resolve) => {
+      const tick = (now) => {
+        const progress = Math.min(1, (now - started) / segment.duration);
+        ctx.save();
+        ctx.fillStyle = '#111';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        drawCoverImage(ctx, video, canvas.width, canvas.height, 1, .42);
+        drawStoryVideoOverlay(ctx, canvas.width, canvas.height);
+        ctx.restore();
+        if (progress < 1 && Number(video.currentTime || 0) < segment.end - .015) requestAnimationFrame(tick);
+        else resolve();
+      };
+      requestAnimationFrame(tick);
+    });
+    video.pause();
+    recorder.stop();
+    await stopped;
+    stream.getTracks().forEach((track) => track.stop());
+    const blob = new Blob(chunks, {type: mimeType});
+    state.readyAssets.storyVideoBlob = blob;
+    state.readyAssets.storyMime = mimeType;
+    state.readyAssets.packageBlob = null;
+    if (els.storyReadyBadge) els.storyReadyBadge.textContent = 'Ready to save';
+    if (!returnBlob) {
+      els.downloadStoryBtn.textContent = 'Save / Share Story Video';
+      showToast('Moving Story ready — tap Save / Share');
+    }
+    return blob;
+  } catch (error) {
+    console.error(error);
+    showAuthNotice('The moving Story preview is ready, but Story video export failed on this device.');
+    return null;
+  } finally {
+    els.downloadStoryBtn.disabled = false;
+    if (state.readyAssets.storyVideoBlob) els.downloadStoryBtn.textContent = 'Save / Share Story Video';
+    else els.downloadStoryBtn.textContent = 'Render Story Video';
+  }
 }
 
 async function exportReelVideo({returnBlob = false} = {}) {
@@ -1933,12 +2630,20 @@ async function exportReelVideo({returnBlob = false} = {}) {
     recorder.start(500);
 
     const loaded = await Promise.all(slides.map((slide) => slide.sourceType === 'video' ? null : loadImageFromDataUrl(slide.dataUrl)));
-    const sourceVideo = slides.some((slide) => slide.sourceType === 'video') ? await createSourceVideoElement() : null;
+    const videoIds = [...new Set(slides.filter((slide) => slide.sourceType === 'video').map((slide) => slide.sourceVideoId).filter(Boolean))];
+    const sourceVideos = {};
+    for (const videoId of videoIds) {
+      const source = videoSourceById(videoId) || primaryVideoSource();
+      if (source) sourceVideos[videoId] = await createSourceVideoElement(source);
+    }
     for (let i = 0; i < slides.length; i += 1) {
       const slide = slides[i];
-      if (slide.sourceType === 'video' && sourceVideo) {
-        await renderOriginalVideoSegment(ctx, sourceVideo, slide, canvas.width, canvas.height);
-        continue;
+      if (slide.sourceType === 'video') {
+        const sourceVideo = sourceVideos[slide.sourceVideoId] || sourceVideos[videoIds[0]] || null;
+        if (sourceVideo) {
+          await renderOriginalVideoSegment(ctx, sourceVideo, slide, canvas.width, canvas.height);
+          continue;
+        }
       }
       const img = loaded[i] || await loadImageFromDataUrl(slide.dataUrl);
       const start = performance.now();
@@ -1952,17 +2657,18 @@ async function exportReelVideo({returnBlob = false} = {}) {
         requestAnimationFrame(tick);
       });
     }
-    if (sourceVideo) {
+    Object.values(sourceVideos).forEach((sourceVideo) => {
       try { sourceVideo.pause(); } catch {}
       sourceVideo.removeAttribute('src');
       sourceVideo.load?.();
-    }
+    });
     recorder.stop();
     await stopped;
     stream.getTracks().forEach((track) => track.stop());
     const blob = new Blob(chunks, {type: mimeType});
     state.readyAssets.reelBlob = blob;
     state.readyAssets.reelMime = mimeType;
+    state.readyAssets.packageBlob = null;
     els.reelReadyBadge.textContent = 'Ready';
     if (!returnBlob) {
       els.reelReadyBadge.textContent = 'Ready to save';
@@ -1995,15 +2701,22 @@ function activateAssetTab(name) {
 }
 
 function refreshApprovalButtons() {
+  const labels = {feed: 'Post', story: 'Story', reel: 'Reel'};
   els.approveBtns?.forEach((button) => {
     const key = button.dataset.approve;
     const approved = Boolean(state.approvedAssets?.[key]);
     button.classList.toggle('approved', approved);
-    button.textContent = approved ? '✓ Approved' : '✓ Approve';
+    button.textContent = approved ? `✓ Using ${labels[key] || 'This'}` : `✓ Use This ${labels[key] || ''}`;
   });
+  const approvedCount = Object.values(state.approvedAssets || {}).filter(Boolean).length;
+  if (els.approvalCount) els.approvalCount.textContent = `${approvedCount}/3`;
 }
 
 els.assetTabs?.forEach((button) => button.addEventListener('click', () => activateAssetTab(button.dataset.assetTab)));
+els.nextAssetBtns?.forEach((button) => button.addEventListener('click', () => {
+  activateAssetTab(button.dataset.nextAsset || 'feed');
+  els.workerAssets?.scrollIntoView({behavior: 'smooth', block: 'start'});
+}));
 els.approveBtns?.forEach((button) => button.addEventListener('click', () => {
   const key = button.dataset.approve;
   if (!key) return;
@@ -2040,22 +2753,50 @@ async function renderWorkerAssets() {
     ]);
     state.readyAssets.feed = feed;
     state.readyAssets.story = story;
+    state.readyAssets.storyVideoBlob = null;
+    state.readyAssets.storyMime = '';
     state.readyAssets.reelSlides = buildReelSlides();
     state.readyAssets.reelBlob = null;
     state.readyAssets.reelMime = '';
     state.readyAssets.packageBlob = null;
     els.feedAssetPreview.src = feed;
     els.storyAssetPreview.src = story;
+    const storyVideoSource = primaryVideoSource();
+    const hasStoryVideo = Boolean(storyVideoSource?.objectUrl && storyVideoSource?.duration);
+    if (hasStoryVideo && els.storyAssetPreviewVideo) {
+      els.storyAssetPreview.classList.add('hidden');
+      els.storyAssetPreviewVideo.classList.remove('hidden');
+      els.storyAssetPreviewVideo.src = storyVideoSource.objectUrl;
+      els.storyAssetPreviewVideo.currentTime = 0;
+      els.storyAssetPreviewVideo.play().catch(() => {});
+      if (els.storyVideoOverlay) els.storyVideoOverlay.classList.remove('hidden');
+      if (els.storyVideoOverlayTitle) els.storyVideoOverlayTitle.textContent = state.result?.storyOverlayText || state.result?.postOverlayText || state.result?.headline || '';
+      if (els.storyVideoOverlayCta) els.storyVideoOverlayCta.textContent = state.result?.cta || '';
+      if (els.storyAssetTitle) els.storyAssetTitle.textContent = '9:16 Moving Story';
+      if (els.storyReadyBadge) els.storyReadyBadge.textContent = 'Preview ready';
+    } else {
+      els.storyAssetPreview.classList.remove('hidden');
+      if (els.storyAssetPreviewVideo) { try { els.storyAssetPreviewVideo.pause(); } catch {}; els.storyAssetPreviewVideo.classList.add('hidden'); }
+      if (els.storyVideoOverlay) els.storyVideoOverlay.classList.add('hidden');
+      if (els.storyAssetTitle) els.storyAssetTitle.textContent = '9:16 Story';
+      if (els.storyReadyBadge) els.storyReadyBadge.textContent = 'Ready';
+    }
     if (state.readyAssets.reelSlides.length) showReelSlide(0, false);
+    if (els.palPick) {
+      const hasVideo = allVideoSources().length > 0;
+      const pick = hasVideo ? 'Reel' : 'Post';
+      const reason = hasVideo ? 'Best fit for your moving footage — I’d review the Reel first.' : 'Strongest finished visual from this set — I’d review the Post first.';
+      els.palPick.innerHTML = `<span>★ PAL'S PICK: ${pick.toUpperCase()}</span><strong>${reason}</strong>`;
+    }
     els.downloadFeedBtn.disabled = false;
     els.downloadStoryBtn.disabled = false;
     els.downloadPackageBtn.disabled = false;
     els.downloadFeedBtn.textContent = 'Save / Share Post';
-    els.downloadStoryBtn.textContent = 'Save / Share Story';
+    els.downloadStoryBtn.textContent = hasStoryVideo ? 'Render Story Video' : 'Save / Share Story';
     els.downloadPackageBtn.textContent = 'Prepare package';
     els.downloadReelBtn.disabled = !state.readyAssets.reelSlides.length;
     els.downloadReelBtn.textContent = state.readyAssets.reelSlides.length ? 'Render Reel' : 'Reel unavailable';
-    activateAssetTab(state.activeAssetTab || 'feed');
+    activateAssetTab(allVideoSources().length ? 'reel' : (state.activeAssetTab || 'feed'));
     refreshApprovalButtons();
     els.assetStatus.textContent = 'Finished automatically with Preserve Reality. Your originals are untouched.';
   } catch (error) {
@@ -2087,10 +2828,21 @@ async function prepareWorkerPackage() {
       await exportReelVideo({returnBlob: true});
       els.downloadPackageBtn.textContent = 'Building package…';
     }
+    if (primaryVideoSource()?.objectUrl && !state.readyAssets.storyVideoBlob && globalThis.MediaRecorder && HTMLCanvasElement.prototype.captureStream) {
+      els.downloadPackageBtn.textContent = 'Rendering Story…';
+      await exportStoryVideo({returnBlob: true});
+      els.downloadPackageBtn.textContent = 'Building package…';
+    }
     const feedBlob = await dataUrlToBlob(state.readyAssets.feed);
     const storyBlob = await dataUrlToBlob(state.readyAssets.story);
     zip.file('01-feed-post-4x5.jpg', feedBlob);
-    zip.file('02-story-9x16.jpg', storyBlob);
+    if (state.readyAssets.storyVideoBlob) {
+      const storyExt = state.readyAssets.storyMime.includes('mp4') ? 'mp4' : 'webm';
+      zip.file(`02-story-video.${storyExt}`, state.readyAssets.storyVideoBlob);
+      zip.file('02b-story-still.jpg', storyBlob);
+    } else {
+      zip.file('02-story-9x16.jpg', storyBlob);
+    }
     const hashtags = Array.isArray(state.result?.hashtags) ? state.result.hashtags.join(' ') : (state.result?.hashtags || '');
     const copyText = [
       'PRIMARY CAPTION', state.result?.caption || '', '',
@@ -2122,7 +2874,20 @@ async function prepareWorkerPackage() {
 }
 
 els.downloadFeedBtn?.addEventListener('click', () => shareDataUrlAsset(state.readyAssets.feed, 'social-media-pal-feed-post.jpg', 'Social Media Pal feed post'));
-els.downloadStoryBtn?.addEventListener('click', () => shareDataUrlAsset(state.readyAssets.story, 'social-media-pal-story.jpg', 'Social Media Pal Story'));
+els.downloadStoryBtn?.addEventListener('click', async () => {
+  const hasStoryVideo = Boolean(primaryVideoSource()?.objectUrl && primaryVideoSource()?.duration);
+  if (hasStoryVideo) {
+    if (!state.readyAssets.storyVideoBlob) {
+      await exportStoryVideo({returnBlob: false});
+      return;
+    }
+    const ext = state.readyAssets.storyMime.includes('mp4') ? 'mp4' : 'webm';
+    const file = new File([state.readyAssets.storyVideoBlob], `social-media-pal-story.${ext}`, {type: state.readyAssets.storyMime || state.readyAssets.storyVideoBlob.type || 'video/mp4'});
+    await shareOrSaveFile(file, {title: 'Social Media Pal Story'});
+    return;
+  }
+  await shareDataUrlAsset(state.readyAssets.story, 'social-media-pal-story.jpg', 'Social Media Pal Story');
+});
 els.playReelBtn?.addEventListener('click', playReelPreview);
 els.downloadReelBtn?.addEventListener('click', async () => {
   if (!state.readyAssets.reelBlob) {
@@ -2243,9 +3008,11 @@ async function compressDataUrlForHistory(dataUrl) {
 
 async function currentProjectSnapshot() {
   const historyPhotos = await Promise.all(state.photos.map(async (photo) => ({...photo, dataUrl: await compressDataUrlForHistory(photo.dataUrl)})));
+  const existing = state.activeProjectId ? state.recentProjects.find((item) => item.id === state.activeProjectId) : null;
   return {
-    id: globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    createdAt: Date.now(),
+    id: state.activeProjectId || (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+    createdAt: existing?.createdAt || Date.now(),
+    updatedAt: Date.now(),
     headline: state.result?.headline || els.description.value.trim() || 'Untitled project',
     description: els.description.value,
     contentType: els.contentType.value,
@@ -2258,7 +3025,8 @@ async function currentProjectSnapshot() {
       reelMode: els.reelMode.value,
     },
     photos: historyPhotos.filter((photo) => photo.dataUrl),
-    videoSource: serializableVideoSource(state.videoSource),
+    videoSource: serializableVideoSource(primaryVideoSource()),
+    videoSources: serializableVideoSources(),
     result: state.result,
     historyMediaCompressed: true,
   };
@@ -2267,8 +3035,9 @@ async function currentProjectSnapshot() {
 async function saveCurrentProject() {
   if (!state.result) return;
   const snapshot = await currentProjectSnapshot();
-  const deduped = state.recentProjects.filter((item) => !(item.headline === snapshot.headline && item.description === snapshot.description));
+  const deduped = state.recentProjects.filter((item) => item.id !== snapshot.id && !(item.headline === snapshot.headline && item.description === snapshot.description));
   state.recentProjects = [snapshot, ...deduped].slice(0, MAX_RECENT_PROJECTS);
+  state.activeProjectId = snapshot.id;
   const save = (projects) => {
     localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(projects));
     state.recentProjects = projects;
@@ -2285,7 +3054,7 @@ async function saveCurrentProject() {
     }
     if (!saved) {
       try {
-        save([{...snapshot, photos: [], videoSource: null}]);
+        save([{...snapshot, photos: [], videoSource: null, videoSources: []}]);
         showToast('Project saved without media preview to save phone storage');
       } catch {
         state.recentProjects = [];
@@ -2300,7 +3069,7 @@ async function saveCurrentProject() {
 function loadRecentProjects() {
   try {
     const currentRaw = localStorage.getItem(PROJECTS_STORAGE_KEY);
-    const legacyRaw = localStorage.getItem('socialStudioRecentProjectsV14') || localStorage.getItem('socialStudioRecentProjectsV12') || localStorage.getItem('socialStudioRecentProjectsV11') || localStorage.getItem('socialStudioRecentProjectsV10') || localStorage.getItem('socialStudioRecentProjectsV09') || localStorage.getItem('socialStudioRecentProjectsV08');
+    const legacyRaw = localStorage.getItem('socialStudioRecentProjectsV16') || localStorage.getItem('socialStudioRecentProjectsV15') || localStorage.getItem('socialStudioRecentProjectsV14') || localStorage.getItem('socialStudioRecentProjectsV12') || localStorage.getItem('socialStudioRecentProjectsV11') || localStorage.getItem('socialStudioRecentProjectsV10') || localStorage.getItem('socialStudioRecentProjectsV09') || localStorage.getItem('socialStudioRecentProjectsV08');
     state.recentProjects = JSON.parse(currentRaw || legacyRaw || '[]');
     if (!Array.isArray(state.recentProjects)) state.recentProjects = [];
     if (!currentRaw && legacyRaw && state.recentProjects.length) {
@@ -2321,12 +3090,13 @@ function renderRecentProjects() {
     const frameCount = projectPhotos.filter((photo) => photo.sourceType === 'videoFrame').length;
     const mediaBits = [];
     if (photoCount) mediaBits.push(`${photoCount} photo${photoCount === 1 ? '' : 's'}`);
-    if (project.videoSource) mediaBits.push(`video${frameCount ? ` • ${frameCount} analysis frame${frameCount === 1 ? '' : 's'}` : ''}`);
+    const projectVideoCount = Array.isArray(project.videoSources) && project.videoSources.length ? project.videoSources.length : (project.videoSource ? 1 : 0);
+    if (projectVideoCount) mediaBits.push(`${projectVideoCount} video${projectVideoCount === 1 ? '' : 's'}${frameCount ? ` • ${frameCount} analysis frame${frameCount === 1 ? '' : 's'}` : ''}`);
     if (!mediaBits.length) mediaBits.push('saved content');
     return `<div class="recent-project">
       <button class="recent-project-open" type="button" data-project-id="${project.id}">
-        <div class="recent-project-icon">${project.videoSource ? '🎞️' : '📷'}</div>
-        <div><div class="recent-project-title">${escapeHtml(project.headline || 'Untitled project')}</div><div class="recent-project-meta">${escapeHtml(formatDateTime(project.createdAt))} • ${mediaBits.join(' • ')}</div></div>
+        <div class="recent-project-icon">${(Array.isArray(project.videoSources) && project.videoSources.length) || project.videoSource ? '🎞️' : '📷'}</div>
+        <div><div class="recent-project-title">${escapeHtml(project.headline || 'Untitled project')}</div><div class="recent-project-meta">${escapeHtml(formatDateTime(project.updatedAt || project.createdAt))} • ${mediaBits.join(' • ')}</div></div>
         <span class="recent-project-arrow">›</span>
       </button>
       <button class="recent-project-delete" type="button" data-delete-project-id="${project.id}" aria-label="Delete ${escapeHtml(project.headline || 'project')}">🗑️</button>
@@ -2340,20 +3110,28 @@ function renderRecentProjects() {
     if (!window.confirm(`Delete “${project.headline || 'this project'}”?`)) return;
     state.recentProjects = state.recentProjects.filter((item) => item.id !== projectId);
     try { localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(state.recentProjects)); } catch {}
-    const videoId = project.videoSource?.id;
-    if (videoId && !state.recentProjects.some((item) => item.videoSource?.id === videoId)) await deleteVideoBlobFromDb(videoId);
+    const videoIds = [project.videoSource?.id, ...((project.videoSources || []).map((item) => item?.id))].filter(Boolean);
+    for (const videoId of videoIds) {
+      if (videoId && !state.recentProjects.some((item) => item.videoSource?.id === videoId || (item.videoSources || []).some((source) => source?.id === videoId))) await deleteVideoBlobFromDb(videoId);
+    }
     renderRecentProjects();
-    showToast('Project deleted');
+    if (state.activeProjectId === projectId) resetForNewProject();
+    else showToast('Project deleted');
   }));
 }
 
 async function applyProject(project) {
   if (!project) return;
+  state.mediaSession += 1;
+  setMediaBusy(false);
   releaseCurrentVideoUrl();
+  state.activeProjectId = project.id || null;
   state.photos = Array.isArray(project.photos) ? project.photos : [];
-  state.videoSource = project.videoSource ? await hydrateVideoSource(project.videoSource) : null;
+  const sourceList = Array.isArray(project.videoSources) && project.videoSources.length ? project.videoSources : (project.videoSource ? [project.videoSource] : []);
+  state.videoSources = await hydrateVideoSources(sourceList);
+  syncPrimaryVideoSource();
   state.result = project.result || null;
-  state.readyAssets = {feed: '', story: '', reelSlides: [], reelBlob: null, reelMime: '', packageBlob: null};
+  state.readyAssets = {feed: '', story: '', storyVideoBlob: null, storyMime: '', reelSlides: [], reelBlob: null, reelMime: '', packageBlob: null};
   stopReelPreview();
   els.description.value = project.description || '';
   els.contentType.value = project.contentType || 'Full social package';
@@ -2374,7 +3152,7 @@ async function applyProject(project) {
     els.emptyState.classList.remove('hidden');
     activateView('create');
   }
-  if (project.videoSource && !state.videoSource?.blob) showAuthNotice('Project loaded. The saved analysis frames are available, but the original video file could not be restored; choose the video again to rebuild a moving-footage Reel.');
+  if ((project.videoSource || (project.videoSources || []).length) && !allVideoSources().some((item) => item?.blob)) showAuthNotice('Project loaded. The saved analysis frames are available, but one or more original video files could not be restored; choose the videos again to rebuild moving-footage Story/Reel exports.');
   else showToast('Project loaded');
 }
 
@@ -2384,15 +3162,17 @@ async function loadProject(projectId) {
 
 els.clearProjectsBtn.addEventListener('click', async () => {
   if (state.recentProjects.length && !window.confirm('Delete all recent projects?')) return;
-  const videoIds = state.recentProjects.map((project) => project.videoSource?.id).filter(Boolean);
+  const videoIds = state.recentProjects.flatMap((project) => [project.videoSource?.id, ...((project.videoSources || []).map((source) => source?.id))].filter(Boolean));
   state.recentProjects = [];
-  ['socialStudioRecentProjectsV15', 'socialStudioRecentProjectsV14', 'socialStudioRecentProjectsV12', 'socialStudioRecentProjectsV11', 'socialStudioRecentProjectsV10', 'socialStudioRecentProjectsV09', 'socialStudioRecentProjectsV08'].forEach((key) => localStorage.removeItem(key));
+  ['socialStudioRecentProjectsV17', 'socialStudioRecentProjectsV16', 'socialStudioRecentProjectsV15', 'socialStudioRecentProjectsV14', 'socialStudioRecentProjectsV12', 'socialStudioRecentProjectsV11', 'socialStudioRecentProjectsV10', 'socialStudioRecentProjectsV09', 'socialStudioRecentProjectsV08'].forEach((key) => localStorage.removeItem(key));
   await Promise.all(videoIds.map((id) => deleteVideoBlobFromDb(id)));
   renderRecentProjects();
-  showToast('Recent projects cleared');
+  resetForNewProject();
+  showToast('Projects and current workspace cleared');
 });
 
 loadProfile();
+loadMicPreference();
 loadRecentProjects();
 updateReelModeVisibility();
 refreshSelectedPhotoOptions();

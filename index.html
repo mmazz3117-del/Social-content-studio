@@ -20,7 +20,7 @@
       <div class="topbar-inner">
         <div class="brand-lockup">
           <div class="brand-mark">SM</div>
-          <div class="title-row"><h1>Social Media Pal</h1><span class="version-tag">v1.5</span></div>
+          <div class="title-row"><h1>Social Media Pal</h1><span class="version-tag">v1.9</span></div>
         </div>
         <div class="topbar-actions">
           <span id="apiStatus" class="status-pill demo">Sign in to connect</span>
@@ -37,20 +37,26 @@
         <div class="view-heading create-heading">
           <div>
             <span class="view-kicker">CREATE</span>
-            <h2>What are we creating today?</h2>
-            <p>Add your media, give Social Media Pal a quick direction, then choose Custom or One-Tap.</p>
+            <h2>Hand me the raw material. I’ll build the content.</h2>
+            <p>Upload photos or clips, tell Pal the goal in a sentence, and review the finished Post, Story and Reel.</p>
           </div>
           <div class="view-icon">✨</div>
+        </div>
+
+        <div class="workflow-strip" aria-label="How Social Media Pal works">
+          <div><span>1</span><strong>Add media</strong></div><i>→</i>
+          <div><span>2</span><strong>Give direction</strong></div><i>→</i>
+          <div><span>3</span><strong>Pal builds it</strong></div>
         </div>
 
         <section class="panel panel-upload" id="mediaPanel">
           <div class="panel-heading">
             <div><span class="step-number blue">01</span><h3>Add media</h3></div>
-            <span class="helper">Up to 6 images/frames</span>
+            <span class="helper">Up to 10 media items</span>
           </div>
 
           <input id="photoInput" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden />
-          <input id="videoInput" type="file" accept="video/mp4,video/quicktime,video/webm,video/*" hidden />
+          <input id="videoInput" type="file" accept="video/mp4,video/quicktime,video/webm,video/*" multiple hidden />
 
           <div id="dropZone" class="media-actions" aria-label="Add photos or video">
             <label class="media-action photo-action" for="photoInput">
@@ -74,15 +80,41 @@
               <small>Beta</small>
             </button>
           </div>
-          <p class="quality-tip"><strong>Best quality:</strong> use your iPhone Camera app and then choose several photos or a video. <em>Take Photos</em> and <em>Record Video</em> keep you inside Social Media Pal for convenience, but browser camera quality can vary by device.<br><strong>Video:</strong> the F1/F2/F3 thumbnails are analysis snapshots only. Worker Mode keeps the original moving footage for the finished Reel.</p>
+          <p class="quality-tip"><strong>Best quality:</strong> use your iPhone Camera app and then choose several photos or one or more short videos. <em>Take Photos</em> and <em>Record Video</em> keep you inside Social Media Pal for convenience, but browser camera quality can vary by device.<br><strong>Video:</strong> the F1/F2/F3 thumbnails are analysis snapshots only. Worker Mode keeps the original moving footage for the finished Reel and can blend multiple clips together automatically.</p>
           <div id="photoGrid" class="photo-grid" aria-live="polite"></div>
+          <div id="mediaSummary" class="media-summary hidden" aria-live="polite"></div>
         </section>
 
         <section class="panel panel-brief">
           <div class="panel-heading">
             <div><span class="step-number peach">02</span><h3>What’s happening?</h3></div>
           </div>
-          <textarea id="description" rows="4" placeholder="Example: New summer teas arrived and I want to let everyone know in a fun, exciting way."></textarea>
+          <textarea id="description" rows="4" placeholder="Example: New summer teas arrived — make this feel fun, summery and inviting."></textarea>
+          <div class="voice-brief-card" aria-label="Tell Pal by voice">
+            <div class="voice-brief-main">
+              <button id="tellPalBtn" class="tell-pal-btn" type="button"><span class="tell-pal-icon">🎙️</span><span><strong>Tell Pal</strong><small>Speak your idea instead of typing</small></span></button>
+              <div class="voice-status-wrap">
+                <div id="voiceStatus" class="voice-status" aria-live="polite">Ready when you are.</div>
+                <div class="mic-meter" aria-hidden="true"><span id="micLevelBar"></span></div>
+              </div>
+            </div>
+            <details class="mic-settings">
+              <summary>Mic settings</summary>
+              <div class="mic-settings-body">
+                <label><span>Microphone mode</span><select id="micMode"><option value="auto">Auto — recommended</option><option value="mono">Mono</option><option value="stereo">Stereo</option></select></label>
+                <button id="testMicBtn" class="small-action-btn" type="button">Test microphone</button>
+                <p>Auto tries compatible microphone settings for this device. If your mic suddenly stops working, try Mono or Stereo. This controls Tell Pal; the iPhone keyboard microphone is controlled by iOS.</p>
+              </div>
+            </details>
+          </div>
+          <div class="brief-starters" aria-label="Quick direction ideas">
+            <span>Quick start:</span>
+            <button type="button" data-brief-starter="New arrivals — make this exciting, polished and local.">✨ New arrivals</button>
+            <button type="button" data-brief-starter="Feature this product and make people curious to stop in and see it.">🛍️ Product spotlight</button>
+            <button type="button" data-brief-starter="Create an inviting visual tour that makes the store feel worth visiting.">🏪 Store tour</button>
+            <button type="button" data-brief-starter="Turn this into a quick useful educational post that is easy to understand.">💡 Teach something</button>
+            <button type="button" data-brief-starter="Make this playful, warm and behind-the-scenes without feeling overly promotional.">🎉 Make it fun</button>
+          </div>
 
           <details id="customizeDetails" class="customize-box">
             <summary><span>⚙️ Customize</span><small>Format, tone &amp; Reel options</small></summary>
@@ -135,11 +167,12 @@
           <div class="panel-heading">
             <div><span class="step-number purple">03</span><h3>Create</h3></div>
           </div>
-          <div class="action-grid">
-            <button id="generateBtn" class="primary-btn" type="button"><span id="generateLabel">✨ Create Social Package</span><span aria-hidden="true">→</span></button>
-            <button id="oneTapBtn" class="secondary-btn one-tap-btn" type="button">⚡ One-Tap Create</button>
+          <div class="action-grid pal-action-grid">
+            <button id="oneTapBtn" class="primary-btn one-tap-btn hero-create-btn" type="button"><span>✨ Make It For Me</span><span aria-hidden="true">→</span></button>
+            <button id="generateBtn" class="secondary-btn custom-create-btn" type="button"><span id="generateLabel">🎛️ Use My Settings</span></button>
           </div>
-          <p class="privacy-note">Only photos and sampled video frames are sent for analysis. Your original video stays on your device.</p>
+          <div class="create-choice-help"><strong>Make It For Me</strong> is the fastest path. Use My Settings only when you want to control tone, format or Reel options.</div>
+          <p class="privacy-note">Only photos and sampled video frames are sent for analysis. Your original videos stay on your device.</p>
         </section>
       </section>
 
@@ -158,18 +191,20 @@
               <span class="view-kicker">YOUR SOCIAL PACKAGE</span>
               <h2 id="resultHeadline">Ready to post</h2>
             </div>
-            <button id="newBtn" class="small-action-btn" type="button">Start new</button>
+            <div class="results-header-actions"><button id="deleteCurrentBtn" class="small-action-btn danger-outline" type="button">Delete current</button><button id="newBtn" class="small-action-btn" type="button">Start new</button></div>
           </div>
 
           <section id="workerAssets" class="worker-assets hidden" aria-live="polite">
             <div class="worker-assets-head">
               <div>
-                <span class="view-kicker">WORKER MODE</span>
-                <h3>Your finished content is ready</h3>
-                <p>Review the finished media Social Media Pal built for you. Instructions are secondary now.</p>
+                <span class="view-kicker">PAL HANDOFF</span>
+                <h3>I built the content. You make the call.</h3>
+                <p>Review the finished media first. Approve it, tweak the creative direction, or save what you want to post.</p>
               </div>
-              <button id="downloadPackageBtn" class="package-btn" type="button">Prepare package</button>
+              <div class="approval-meter"><strong id="approvalCount">0/3</strong><span>approved</span></div>
             </div>
+            <div class="ready-ribbon"><span>🖼️ Post ready</span><span>✨ Story ready</span><span>🎬 Reel ready</span></div>
+            <div id="palPick" class="pal-pick"><span>★ PAL'S PICK</span><strong>Reviewing your media…</strong></div>
 
             <p class="share-save-note">On iPhone, Save / Share opens the iPhone share sheet so you can choose Save Image, Save Video, or Save to Files.</p>
 
@@ -182,13 +217,17 @@
             <article class="asset-card asset-panel active" data-asset-panel="feed">
               <div class="asset-card-head"><div><span>FINISHED FEED ASSET</span><h4>4:5 Instagram / Facebook Post</h4></div><span class="ready-dot">Ready</span></div>
               <div class="asset-frame feed-frame worker-main-frame"><img id="feedAssetPreview" alt="Finished feed post preview" /></div>
-              <div class="finished-actions"><button id="downloadFeedBtn" class="asset-action" type="button">Save / Share Post</button><button class="approve-btn" data-approve="feed" type="button">✓ Approve</button></div>
+              <div class="finished-actions"><button id="downloadFeedBtn" class="asset-action" type="button">Save / Share Post</button><button class="approve-btn" data-approve="feed" type="button">✓ Use This Post</button><button class="next-asset-btn" data-next-asset="story" type="button">Next: Story →</button></div>
             </article>
 
             <article class="asset-card asset-panel" data-asset-panel="story">
-              <div class="asset-card-head"><div><span>FINISHED STORY ASSET</span><h4>9:16 Story</h4></div><span class="ready-dot">Ready</span></div>
-              <div class="asset-frame story-frame worker-main-frame story-main-frame"><img id="storyAssetPreview" alt="Finished Story preview" /></div>
-              <div class="finished-actions"><button id="downloadStoryBtn" class="asset-action" type="button">Save / Share Story</button><button class="approve-btn" data-approve="story" type="button">✓ Approve</button></div>
+              <div class="asset-card-head"><div><span>FINISHED STORY ASSET</span><h4 id="storyAssetTitle">9:16 Story</h4></div><span id="storyReadyBadge" class="ready-dot">Ready</span></div>
+              <div class="asset-frame story-frame worker-main-frame story-main-frame story-media-frame">
+                <img id="storyAssetPreview" alt="Finished Story preview" />
+                <video id="storyAssetPreviewVideo" class="hidden" muted loop playsinline preload="metadata"></video>
+                <div id="storyVideoOverlay" class="story-video-overlay hidden"><strong id="storyVideoOverlayTitle"></strong><span id="storyVideoOverlayCta"></span></div>
+              </div>
+              <div class="finished-actions"><button id="downloadStoryBtn" class="asset-action" type="button">Save / Share Story</button><button class="approve-btn" data-approve="story" type="button">✓ Use This Story</button><button class="next-asset-btn" data-next-asset="reel" type="button">Next: Reel →</button></div>
             </article>
 
             <article class="asset-card asset-panel" data-asset-panel="reel">
@@ -207,23 +246,28 @@
               <div class="reel-actions finished-actions">
                 <button id="playReelBtn" class="asset-action secondary-asset" type="button">▶ Play preview</button>
                 <button id="downloadReelBtn" class="asset-action" type="button">Render Reel</button>
-                <button class="approve-btn" data-approve="reel" type="button">✓ Approve</button>
+                <button class="approve-btn" data-approve="reel" type="button">✓ Use This Reel</button>
               </div>
-              <p class="asset-helper">Built automatically from your uploaded media and the AI plan. Reel text is kept as reference only, so the exported Reel stays clean for you to add your own text when posting. If video was uploaded, Social Media Pal now uses the original moving footage for the Reel when it is available. Sampled frames are still used for AI analysis and shot selection.</p>
+              <p class="asset-helper">Built automatically from your uploaded media and the AI plan. Reel text is kept as reference only, so the exported Reel stays clean for you to add your own text when posting. If video was uploaded, Social Media Pal uses the original moving footage to build the Reel automatically. When you add multiple clips, it can blend together several short highlight moments. Sampled frames are only for AI analysis.</p>
             </article>
 
             <div id="assetStatus" class="asset-status">Finishing your media…</div>
+            <details class="package-options">
+              <summary>More save options</summary>
+              <p>For desktop or archiving, build a ZIP with the finished media and copy. On iPhone, the individual Save / Share buttons are usually easier.</p>
+              <button id="downloadPackageBtn" class="package-btn" type="button">Build ZIP package</button>
+            </details>
           </section>
 
-          <details class="quick-tweaks" open>
-            <summary>Quick tweaks <span>• one tap</span></summary>
+          <section class="quick-tweaks creative-controls">
+            <div class="creative-controls-head"><div><span class="view-kicker">CREATIVE CONTROLS</span><strong>Want a different version?</strong></div><small>One tap — Pal rebuilds the package</small></div>
             <div class="refine-actions">
-              <button class="refine-btn" data-refine="shorter" type="button">Shorter</button>
-              <button class="refine-btn" data-refine="more_fun" type="button">More Fun</button>
-              <button class="refine-btn" data-refine="less_salesy" type="button">Less Salesy</button>
-              <button class="refine-btn" data-refine="try_another" type="button">Try Another</button>
+              <button class="refine-btn tweak-shorter" data-refine="shorter" type="button"><span>✂️</span> Shorter</button>
+              <button class="refine-btn tweak-fun" data-refine="more_fun" type="button"><span>🎉</span> More Fun</button>
+              <button class="refine-btn tweak-soft" data-refine="less_salesy" type="button"><span>🌿</span> Less Salesy</button>
+              <button class="refine-btn tweak-new" data-refine="try_another" type="button"><span>✨</span> New Direction</button>
             </div>
-          </details>
+          </section>
 
           <div class="tab-bar" role="tablist">
             <button class="tab active" data-tab="caption" type="button"><span>✍️</span> Caption</button>
@@ -365,7 +409,7 @@
       <div class="camera-head"><div><span class="view-kicker">MULTI-SHOT • BETA</span><h2>Take several photos</h2></div><button id="closePhotoCameraBtn" class="close-btn" type="button" aria-label="Close photo camera">×</button></div>
       <div class="camera-stage photo-camera-stage"><video id="photoCameraPreview" autoplay muted playsinline></video><div id="photoCameraStatus" class="camera-status">Opening rear camera…</div></div>
       <p class="camera-tip">Tap the shutter for each angle. The camera stays open until you tap <strong>Use Photos</strong>. For the highest image quality, you can also take photos in the iPhone Camera app and use <strong>Choose Photos</strong>.</p>
-      <div class="capture-status-row"><strong id="photoCaptureCount">0 photos</strong><span>Up to 6 total media items</span></div>
+      <div class="capture-status-row"><strong id="photoCaptureCount">0 photos</strong><span>Up to 10 total media items</span></div>
       <div id="photoCaptureStrip" class="photo-capture-strip" aria-live="polite"></div>
       <div class="photo-camera-actions">
         <button id="photoShutterBtn" class="shutter-btn" type="button" aria-label="Take photo"><span></span></button>

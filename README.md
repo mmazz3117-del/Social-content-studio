@@ -1,20 +1,27 @@
-# Social Media Pal v1.5 — Real Video Worker Reels + Project Delete
+# Social Media Pal v1.9 — Tell Pal + Direction-Aware Editing
 
 Frontend-only update. No Firebase redeploy is required.
 
-## What changed
+## What v1.9 adds
 
-- Original uploaded video is now retained locally in the browser (IndexedDB when available) in addition to the sampled F1/F2/F3 analysis frames.
-- The AI still analyzes sampled still frames, but Worker Mode now uses the original moving footage around the AI-selected timestamps when assembling/exporting a Reel.
-- Short video-only projects use the real moving clip once instead of turning the three analysis frames into three animated stills.
-- Mixed photo/video Reels can combine actual moving video segments with still-photo motion (zoom in/out, pans, steady holds).
-- The first small fraction of a longer clip is trimmed where possible to reduce the common hand-shake at the instant recording begins.
-- Video thumbnails are explicitly labeled/explained as analysis snapshots only.
-- Saved projects can restore their original video from local browser storage when available.
-- Each Recent Project now has its own trash button with confirmation. “Clear all” remains available.
-- Feed/Story/Reel Save / Share behavior from v1.3 stays intact.
-- Reel text suggestions remain reference-only and are not burned into the exported video.
+- **🎙️ Tell Pal** beside the project description. Tap it and speak the creative brief instead of typing.
+- Live speech-to-text when the browser provides the Web Speech recognition API.
+- **Mic Settings** with Auto, Mono, and Stereo modes plus a microphone test and live input meter.
+- Auto microphone mode tries compatible device/default, mono, and stereo microphone constraints when opening/testing the mic.
+- Clear mic status messages for permission, no-speech, audio-capture, and unsupported-browser cases.
+- The mic preference is remembered on the device.
+- The user's project description now affects local Reel editing choices more directly, including pacing, clip length, still-photo duration, transition softness, motion style, and whether video is prioritized.
+- Phrases such as **energetic / quick / punchy** produce faster pacing and shorter transitions.
+- Phrases such as **smooth / elegant / calm / cinematic** produce longer shots and softer transitions.
+- **store tour / whole store / overview** biases still-photo movement toward pans.
+- **product / detail / close-up / spotlight** biases still-photo movement toward gentle zooms.
+- **focus on video / footage / clips** guarantees moving footage is included when possible.
+- **use the full video / don't cut it** preserves a single video as one continuous segment when the project contains only that video.
 
-## Current limitation
+## Everything from v1.8 is included
 
-The auto-rendered Reel is designed as clean visual media for social posting. Original source-video audio is not mixed into the rendered Reel in this version; add music/audio when posting or keep the original clip separately if its sound is important.
+v1.9 is cumulative. You do not need to deploy v1.8 first. It includes the v1.8 Worker Mode/UI polish, multiple-video support, multi-clip Reels, stronger Quick Tweaks, project cleanup, save/share workflow, Social Media Pal branding, and app icons.
+
+## Important microphone note
+
+Mic Settings apply to Social Media Pal's own Tell Pal microphone access/test path. Apple's keyboard Dictation microphone is controlled by iOS and cannot be forced to mono or stereo by the webpage.
