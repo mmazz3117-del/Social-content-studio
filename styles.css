@@ -485,15 +485,38 @@ label > span { display: block; margin-bottom: 7px; color: #43564f; font-size: 12
 .recent-project {
   width: 100%;
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) 18px;
-  align-items: center;
-  gap: 11px;
-  text-align: left;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  align-items: stretch;
+  gap: 6px;
   border: 1px solid var(--line);
   background: linear-gradient(180deg, #fff, #f7faf8);
   border-radius: 15px;
-  padding: 12px;
+  padding: 5px;
   color: var(--ink);
+}
+.recent-project-open {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 11px;
+  padding: 7px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+.recent-project-open:active { background: #eef6f2; }
+.recent-project-delete {
+  align-self: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid #ead8d8;
+  border-radius: 11px;
+  background: #fff7f7;
+  color: #925555;
+  font-size: 15px;
 }
 .recent-project-icon { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 12px; background: var(--yellow); }
 .recent-project-title { font-size: 13px; font-weight: 850; overflow-wrap: anywhere; }
@@ -727,8 +750,10 @@ label > span { display: block; margin-bottom: 7px; color: #43564f; font-size: 12
 .reel-asset-card { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, .72fr) minmax(0, 1fr); column-gap: 12px; }
 .reel-asset-card .asset-card-head { grid-column: 1 / -1; }
 .reel-preview { position: relative; grid-row: span 3; width: 100%; aspect-ratio: 9 / 16; max-height: 440px; overflow: hidden; border-radius: 14px; background: #111; border: 1px solid rgba(20,72,58,.10); }
-.reel-preview img { width: 100%; height: 100%; display: block; object-fit: cover; transform: scale(1); transition: transform 2.15s ease, opacity .18s ease; }
-.reel-preview.playing img.scene-enter { transform: scale(1.065); }
+.reel-preview img, .reel-preview video { width: 100%; height: 100%; display: block; object-fit: cover; }
+.reel-preview img { transform: var(--reel-start-transform, scale(1.01)); transition: transform var(--reel-duration, 2.2s) ease, opacity .18s ease; will-change: transform; }
+.reel-preview video { background: #111; }
+.reel-preview.playing img.scene-enter { transform: var(--reel-end-transform, scale(1.065)); }
 .reel-shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.02) 36%, rgba(0,0,0,.70) 100%); pointer-events: none; }
 .reel-copy { position: absolute; left: 16px; right: 16px; bottom: 26px; color: #fff; text-shadow: 0 2px 12px rgba(0,0,0,.25); }
 .reel-hook { margin-bottom: 5px; font-size: 16px; font-weight: 950; line-height: 1.04; }
@@ -850,6 +875,9 @@ label > span { display: block; margin-bottom: 7px; color: #43564f; font-size: 12
   .asset-panel .reel-actions .approve-btn { grid-column: 1 / -1; margin-top: 0; }
 }
 
+/* v1.4 — smarter reel motion + stronger differentiation */
+.reel-motion-note { margin-top: 8px; color: #597069; font-size: 10px; line-height: 1.4; }
+
 /* v1.3 — reliable iPhone save/share flow */
 .share-save-note {
   margin: 10px 4px 12px;
@@ -897,3 +925,6 @@ label > span { display: block; margin-bottom: 7px; color: #43564f; font-size: 12
   font-size: 11px;
   line-height: 1.4;
 }
+
+/* v1.5 — original video footage in Worker Reels + per-project delete */
+.recent-project-delete:active { transform: scale(.96); background: #fdeeee; }

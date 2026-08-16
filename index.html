@@ -4,7 +4,14 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#12473c" />
-  <title>Social Studio</title>
+  <meta name="application-name" content="Social Media Pal" />
+  <meta name="apple-mobile-web-app-title" content="Social Media Pal" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <title>Social Media Pal</title>
+  <link rel="icon" type="image/png" sizes="192x192" href="social-media-pal-icon-192.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="social-media-pal-apple-touch-icon.png" />
+  <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -12,8 +19,8 @@
     <header class="topbar">
       <div class="topbar-inner">
         <div class="brand-lockup">
-          <div class="brand-mark">OS</div>
-          <div class="title-row"><h1>Social Studio</h1><span class="version-tag">v1.3</span></div>
+          <div class="brand-mark">SM</div>
+          <div class="title-row"><h1>Social Media Pal</h1><span class="version-tag">v1.5</span></div>
         </div>
         <div class="topbar-actions">
           <span id="apiStatus" class="status-pill demo">Sign in to connect</span>
@@ -31,7 +38,7 @@
           <div>
             <span class="view-kicker">CREATE</span>
             <h2>What are we creating today?</h2>
-            <p>Add your media, give Social Studio a quick direction, then choose Custom or One-Tap.</p>
+            <p>Add your media, give Social Media Pal a quick direction, then choose Custom or One-Tap.</p>
           </div>
           <div class="view-icon">✨</div>
         </div>
@@ -67,7 +74,7 @@
               <small>Beta</small>
             </button>
           </div>
-          <p class="quality-tip"><strong>Best quality:</strong> use your iPhone Camera app and then choose several photos or a video. <em>Take Photos</em> and <em>Record Video</em> keep you inside Social Studio for convenience, but browser camera quality can vary by device.</p>
+          <p class="quality-tip"><strong>Best quality:</strong> use your iPhone Camera app and then choose several photos or a video. <em>Take Photos</em> and <em>Record Video</em> keep you inside Social Media Pal for convenience, but browser camera quality can vary by device.<br><strong>Video:</strong> the F1/F2/F3 thumbnails are analysis snapshots only. Worker Mode keeps the original moving footage for the finished Reel.</p>
           <div id="photoGrid" class="photo-grid" aria-live="polite"></div>
         </section>
 
@@ -118,7 +125,7 @@
                     <option value="extra_shots_ok">Suggest additional shots I could take</option>
                   </select>
                 </label>
-                <p class="helper-copy">Use only your uploads, or let Social Studio suggest a few extra shots.</p>
+                <p class="helper-copy">Use only your uploads, or let Social Media Pal suggest a few extra shots.</p>
               </div>
             </div>
           </details>
@@ -141,7 +148,7 @@
         <div id="emptyState" class="empty-view-card">
           <div class="empty-icon">📝</div>
           <h2>No results yet</h2>
-          <p>Create a social package and Social Studio will build finished post, Story and Reel assets for you.</p>
+          <p>Create a social package and Social Media Pal will build finished post, Story and Reel assets for you.</p>
           <button id="goCreateFromEmpty" class="primary-btn compact-primary" type="button">Go to Create</button>
         </div>
 
@@ -159,7 +166,7 @@
               <div>
                 <span class="view-kicker">WORKER MODE</span>
                 <h3>Your finished content is ready</h3>
-                <p>Review the finished media Social Studio built for you. Instructions are secondary now.</p>
+                <p>Review the finished media Social Media Pal built for you. Instructions are secondary now.</p>
               </div>
               <button id="downloadPackageBtn" class="package-btn" type="button">Prepare package</button>
             </div>
@@ -188,6 +195,7 @@
               <div class="asset-card-head"><div><span>FINISHED REEL</span><h4>Auto-assembled Reel</h4></div><span id="reelReadyBadge" class="ready-dot">Ready</span></div>
               <div id="reelPreview" class="reel-preview worker-reel-preview" aria-label="Reel preview">
                 <img id="reelPreviewImage" alt="Reel scene preview" />
+                <video id="reelPreviewVideo" class="hidden" muted playsinline preload="metadata"></video>
                 <div id="reelProgress" class="reel-progress"></div>
               </div>
               <div class="reel-text-reference" aria-label="Suggested Reel text reference">
@@ -201,7 +209,7 @@
                 <button id="downloadReelBtn" class="asset-action" type="button">Render Reel</button>
                 <button class="approve-btn" data-approve="reel" type="button">✓ Approve</button>
               </div>
-              <p class="asset-helper">Built automatically from your uploaded media and the AI plan. Reel text is kept as reference only, so the exported Reel stays clean for you to add your own text when posting. If video was uploaded, sampled frames are used for this first Worker Mode version; the original video remains untouched on your device.</p>
+              <p class="asset-helper">Built automatically from your uploaded media and the AI plan. Reel text is kept as reference only, so the exported Reel stays clean for you to add your own text when posting. If video was uploaded, Social Media Pal now uses the original moving footage for the Reel when it is available. Sampled frames are still used for AI analysis and shot selection.</p>
             </article>
 
             <div id="assetStatus" class="asset-status">Finishing your media…</div>
@@ -236,7 +244,7 @@
               <div class="production-notes-body">
                 <div class="result-card accent-coral"><div class="result-card-head"><h3>Opening hook</h3><button class="copy-btn" data-copy="reelHook" type="button">Copy</button></div><div id="reelHookOutput" class="formatted-output"></div></div>
                 <div class="result-card accent-mint">
-                  <div class="result-card-head"><h3>Shot plan Social Studio used</h3><button id="detailsToggleBtn" class="copy-btn" type="button">Expand all</button></div>
+                  <div class="result-card-head"><h3>Shot plan Social Media Pal used</h3><button id="detailsToggleBtn" class="copy-btn" type="button">Expand all</button></div>
                   <div id="reelPlanOutput" class="sequence-list"></div>
                 </div>
                 <div class="result-card accent-sky"><div class="result-card-head"><h3>On-screen text</h3><button class="copy-btn" data-copy="overlayText" type="button">Copy</button></div><div id="overlayOutput" class="formatted-output"></div></div>
@@ -268,7 +276,7 @@
       <!-- TOOLS -->
       <section id="toolsView" class="app-view" data-view="tools">
         <div class="view-heading tools-heading">
-          <div><span class="view-kicker">TOOLS</span><h2>Finish &amp; polish</h2><p>Social Studio does the production work while preserving your real products, labels and logos.</p></div>
+          <div><span class="view-kicker">TOOLS</span><h2>Finish &amp; polish</h2><p>Social Media Pal does the production work while preserving your real products, labels and logos.</p></div>
           <div class="view-icon">📸</div>
         </div>
 

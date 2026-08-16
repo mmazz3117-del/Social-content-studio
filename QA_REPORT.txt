@@ -1,9 +1,18 @@
-SOCIAL STUDIO v1.3 — SAVE & SHARE QA
+Social Studio v1.5 QA
+=====================
 
-- Built from the revised v1.2 Worker Mode frontend.
-- Replaced unverified anchor-download success messages for finished media.
-- Added native file sharing with navigator.share/navigator.canShare and browser-download fallback.
-- Reel save is intentionally two-step so iPhone has a fresh user gesture when the share sheet is opened after rendering.
-- Package save is intentionally two-step for the same reason.
-- Post/Story/edited-image save opens directly from the user tap.
-- JavaScript syntax, duplicate HTML IDs, and DOM reference checks run before packaging.
+Checks completed:
+- app.js JavaScript syntax: PASS (node --check)
+- duplicate HTML IDs: PASS (none)
+- getElementById references: PASS (all present)
+- version badge: PASS (v1.5)
+- package structure: root frontend files only
+
+Targeted review:
+- video upload keeps sampled analysis frames and stores original Blob locally
+- Firebase payload uses serializable video metadata only (Blob/object URL are not sent)
+- short video-only Reels use original moving video
+- mixed Reels can include original video segments + photo motion
+- saved project restoration attempts IndexedDB video retrieval
+- per-project delete removes only the selected project and only removes its stored video when no other saved project references it
+- clear-all removes project metadata and stored video IDs

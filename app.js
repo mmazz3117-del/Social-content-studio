@@ -14,8 +14,10 @@ const MAX_IMAGES = 6;
 const MAX_VIDEOS = 1;
 const VIDEO_FRAME_COUNT = 3;
 const MAX_TOTAL_IMAGE_CHARS = 12_000_000;
-const PROJECTS_STORAGE_KEY = 'socialStudioRecentProjectsV12';
+const PROJECTS_STORAGE_KEY = 'socialStudioRecentProjectsV15';
 const MAX_RECENT_PROJECTS = 8;
+const MEDIA_DB_NAME = 'socialStudioMediaV1';
+const MEDIA_DB_STORE = 'videos';
 
 const REFINE_INSTRUCTIONS = {
   shorter: 'Make the package tighter and more concise. Shorten the primary caption and story first while keeping the same facts and tone.',
@@ -87,6 +89,7 @@ const els = {
   downloadPackageBtn: document.getElementById('downloadPackageBtn'),
   reelPreview: document.getElementById('reelPreview'),
   reelPreviewImage: document.getElementById('reelPreviewImage'),
+  reelPreviewVideo: document.getElementById('reelPreviewVideo'),
   reelPreviewHook: document.getElementById('reelPreviewHook'),
   reelPreviewOverlay: document.getElementById('reelPreviewOverlay'),
   reelProgress: document.getElementById('reelProgress'),
@@ -163,6 +166,112 @@ let cameraStream = null;
 let mediaRecorder = null;
 let recordedChunks = [];
 let discardRecording = false;
+
+
+function makeId(prefix = 'media') {
+  return globalThis.crypto?.randomUUID ? `${prefix}-${globalThis.crypto.randomUUID()}` : `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function openMediaDb() {
+  return new Promise((resolve, reject) => {
+    if (!globalThis.indexedDB) return reject(new Error('IndexedDB unavailable'));
+    const request = indexedDB.open(MEDIA_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(MEDIA_DB_STORE)) db.createObjectStore(MEDIA_DB_STORE, {keyPath: 'id'});
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('Could not open media storage'));
+  });
+}
+
+async function saveVideoBlobToDb(id, file) {
+  if (!id || !file) return false;
+  try {
+    const db = await openMediaDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(MEDIA_DB_STORE, 'readwrite');
+      tx.objectStore(MEDIA_DB_STORE).put({id, blob: file, name: file.name || '', type: file.type || 'video/mp4', savedAt: Date.now()});
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error || new Error('Video storage failed'));
+    });
+    db.close();
+    return true;
+  } catch (error) {
+    console.info('Persistent video storage unavailable', error);
+    return false;
+  }
+}
+
+async function loadVideoBlobFromDb(id) {
+  if (!id) return null;
+  try {
+    const db = await openMediaDb();
+    const record = await new Promise((resolve, reject) => {
+      const tx = db.transaction(MEDIA_DB_STORE, 'readonly');
+      const request = tx.objectStore(MEDIA_DB_STORE).get(id);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error || new Error('Video lookup failed'));
+    });
+    db.close();
+    return record?.blob || null;
+  } catch (error) {
+    console.info('Could not restore stored video', error);
+    return null;
+  }
+}
+
+async function deleteVideoBlobFromDb(id) {
+  if (!id) return;
+  try {
+    const db = await openMediaDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(MEDIA_DB_STORE, 'readwrite');
+      tx.objectStore(MEDIA_DB_STORE).delete(id);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error || new Error('Video delete failed'));
+    });
+    db.close();
+  } catch (error) {
+    console.info('Could not remove stored video', error);
+  }
+}
+
+function releaseCurrentVideoUrl() {
+  if (state.videoSource?.objectUrl) {
+    try { URL.revokeObjectURL(state.videoSource.objectUrl); } catch {}
+  }
+  if (els.reelPreviewVideo) {
+    try { els.reelPreviewVideo.pause(); } catch {}
+    els.reelPreviewVideo.removeAttribute('src');
+    els.reelPreviewVideo.load?.();
+  }
+}
+
+function serializableVideoSource(source = state.videoSource) {
+  if (!source) return null;
+  return {
+    id: source.id || '',
+    name: source.name || '',
+    duration: Number(source.duration || 0),
+    frameCount: Number(source.frameCount || 0),
+    type: source.type || '',
+    size: Number(source.size || 0),
+  };
+}
+
+async function hydrateVideoSource(source) {
+  if (!source) return null;
+  const clean = {...source};
+  let blob = clean.blob || null;
+  if (!blob && clean.id) blob = await loadVideoBlobFromDb(clean.id);
+  if (blob) {
+    clean.blob = blob;
+    clean.type = clean.type || blob.type || 'video/mp4';
+    clean.objectUrl = URL.createObjectURL(blob);
+  }
+  return clean;
+}
 
 function showToast(message) {
   els.toast.textContent = message;
@@ -327,8 +436,16 @@ async function addFiles(files) {
   const images = files.filter((file) => /^image\/(jpeg|png|webp)$/.test(file.type));
   const videos = files.filter((file) => String(file.type || '').startsWith('video/'));
 
-  if (videos.length > MAX_VIDEOS || (videos.length && state.videoSource)) {
+  const hasAttachedVideo = Boolean(state.videoSource?.blob || state.videoSource?.objectUrl);
+  if (videos.length > MAX_VIDEOS || (videos.length && hasAttachedVideo)) {
     showToast('One video per project for now');
+  }
+
+  // A project restored from an older build may have analysis frames but not the original
+  // video blob. Choosing the video again replaces those old frames and restores moving footage.
+  if (videos.length && state.videoSource && !hasAttachedVideo) {
+    state.photos = state.photos.filter((photo) => photo.sourceType !== 'videoFrame');
+    state.videoSource = null;
   }
 
   const slots = () => Math.max(0, MAX_IMAGES - state.photos.length);
@@ -357,8 +474,20 @@ async function addFiles(files) {
           videoTime: frame.time,
         });
       });
-      state.videoSource = {name: file.name, duration: extracted.duration, frameCount: extracted.frames.length};
-      showToast(`Video ready — ${extracted.frames.length} frames sampled`);
+      const videoId = makeId('video');
+      const persisted = await saveVideoBlobToDb(videoId, file);
+      state.videoSource = {
+        id: videoId,
+        name: file.name,
+        duration: extracted.duration,
+        frameCount: extracted.frames.length,
+        type: file.type || 'video/mp4',
+        size: file.size || 0,
+        blob: file,
+        objectUrl: URL.createObjectURL(file),
+        persisted,
+      };
+      showToast(`Video ready — moving footage kept for Reel + ${extracted.frames.length} analysis frames`);
     } catch (error) {
       console.error(error);
       showAuthNotice('That video could not be sampled. Try a different MP4 or MOV clip.');
@@ -473,7 +602,7 @@ function renderPhotos() {
   els.photoGrid.querySelectorAll('.photo-remove').forEach((btn) => {
     btn.addEventListener('click', () => {
       state.photos.splice(Number(btn.dataset.index), 1);
-      if (!state.photos.some((photo) => photo.sourceType === 'videoFrame')) state.videoSource = null;
+      if (!state.photos.some((photo) => photo.sourceType === 'videoFrame')) { releaseCurrentVideoUrl(); state.videoSource = null; }
       state.selectedPhotoIndex = Math.min(state.selectedPhotoIndex, Math.max(0, state.photos.length - 1));
       clearEditedPreview();
       renderPhotos();
@@ -725,7 +854,7 @@ async function startBrowserRecording() {
 
     const blob = new Blob(recordedChunks, {type});
     const extension = type.includes('webm') ? 'webm' : 'mp4';
-    const file = new File([blob], `social-studio-recording-${Date.now()}.${extension}`, {type});
+    const file = new File([blob], `social-media-pal-recording-${Date.now()}.${extension}`, {type});
     stopCameraTracks();
     if (els.cameraDialog.open) els.cameraDialog.close();
     await addFiles([file]);
@@ -808,7 +937,7 @@ function buildPayload(action = 'generate', refineInstruction = '', extras = {}) 
       videoTime: Number.isFinite(photo.videoTime) ? Number(photo.videoTime.toFixed(2)) : null,
     })),
     videoContext: state.videoSource ? {
-      ...state.videoSource,
+      ...serializableVideoSource(state.videoSource),
       frameCount: videoFrames.length,
       frameTimes: videoFrames.map((photo) => Number(photo.videoTime || 0).toFixed(1)),
     } : null,
@@ -985,6 +1114,7 @@ document.querySelectorAll('.copy-btn').forEach((btn) => {
 });
 
 function resetForNewProject() {
+  releaseCurrentVideoUrl();
   state.photos = [];
   state.result = null;
   state.videoSource = null;
@@ -1278,14 +1408,14 @@ function requestBrowserDownload(file) {
   const url = URL.createObjectURL(file);
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = file.name || 'social-studio-file';
+  anchor.download = file.name || 'social-media-pal-file';
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
-async function shareOrSaveFile(file, {title = 'Social Studio', text = ''} = {}) {
+async function shareOrSaveFile(file, {title = 'Social Media Pal', text = ''} = {}) {
   if (!file) return false;
   const shareData = {files: [file], title, text};
   const canShareFiles = Boolean(navigator.share && navigator.canShare && navigator.canShare(shareData));
@@ -1299,7 +1429,7 @@ async function shareOrSaveFile(file, {title = 'Social Studio', text = ''} = {}) 
     }
   }
   requestBrowserDownload(file);
-  showAuthNotice('The browser was asked to download the file, but Social Studio cannot confirm that iPhone saved it. If nothing appears, use the Save / Share option from Safari.');
+  showAuthNotice('The browser was asked to download the file, but Social Media Pal cannot confirm that iPhone saved it. If nothing appears, use the Save / Share option from Safari.');
   return false;
 }
 
@@ -1319,23 +1449,118 @@ async function dataUrlToBlob(dataUrl) {
   return fetch(dataUrl).then((response) => response.blob());
 }
 
-function drawCoverImage(ctx, img, width, height, zoom = 1, focusY = 0.42) {
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function mediaDimensions(media) {
+  const width = media?.videoWidth || media?.naturalWidth || media?.width || 1;
+  const height = media?.videoHeight || media?.naturalHeight || media?.height || 1;
+  return {width, height};
+}
+
+function computeCoverCrop(img, width, height) {
   const targetAspect = width / height;
-  const sourceAspect = img.width / img.height;
-  let sx = 0, sy = 0, sw = img.width, sh = img.height;
+  const dims = mediaDimensions(img);
+  const sourceAspect = dims.width / dims.height;
   if (sourceAspect > targetAspect) {
-    sw = img.height * targetAspect;
-    sx = (img.width - sw) / 2;
-  } else {
-    sh = img.width / targetAspect;
-    sy = Math.max(0, Math.min(img.height - sh, (img.height - sh) * focusY));
+    const sw = dims.height * targetAspect;
+    return {sx: 0, sy: 0, sw, sh: dims.height, maxOffsetX: Math.max(0, dims.width - sw), maxOffsetY: 0};
   }
+  const sh = dims.width / targetAspect;
+  return {sx: 0, sy: 0, sw: dims.width, sh, maxOffsetX: 0, maxOffsetY: Math.max(0, dims.height - sh)};
+}
+
+function drawCoverImage(ctx, img, width, height, zoom = 1, focusY = 0.42) {
+  const crop = computeCoverCrop(img, width, height);
   const z = Math.max(1, zoom);
-  const zw = sw / z;
-  const zh = sh / z;
-  sx += (sw - zw) / 2;
-  sy += (sh - zh) / 2;
+  const zw = crop.sw / z;
+  const zh = crop.sh / z;
+  const sx = crop.maxOffsetX ? crop.maxOffsetX * 0.5 + (crop.sw - zw) / 2 : (crop.sw - zw) / 2;
+  const syBase = crop.maxOffsetY ? crop.maxOffsetY * clamp(focusY, 0, 1) : 0;
+  const sy = syBase + (crop.sh - zh) / 2;
   ctx.drawImage(img, sx, sy, zw, zh, 0, 0, width, height);
+}
+
+function chooseStoryPhotoIndex(leadIndex) {
+  if (!state.photos.length) return 0;
+  if (state.photos.length === 1) return 0;
+
+  const verticalIndex = state.photos.findIndex((photo, index) => index !== leadIndex && photo.width && photo.height && photo.height / photo.width > 1.12);
+  if (verticalIndex >= 0) return verticalIndex;
+
+  const plan = Array.isArray(state.result?.reelPlan) ? state.result.reelPlan : [];
+  for (let i = 0; i < plan.length; i += 1) {
+    const idx = parseReelMediaIndex(plan[i], i);
+    if (idx !== leadIndex && state.photos[idx]) return idx;
+  }
+
+  return (leadIndex + 1) % state.photos.length;
+}
+
+function chooseReelMotion(item, photo, index, total) {
+  const text = String(typeof item === 'string'
+    ? item
+    : `${item?.title || ''} ${item?.detail || ''} ${item?.note || ''} ${item?.overlayText || ''}`).toLowerCase();
+  const portrait = Boolean(photo?.height && photo?.width && photo.height / photo.width > 1.18);
+  const veryWide = Boolean(photo?.width && photo?.height && photo.width / photo.height > 1.35);
+
+  if (/close|detail|label|single|feature|focus|product/.test(text)) return index % 2 ? 'zoom_in_soft' : 'zoom_in';
+  if (/wide|shelf|display|range|tour|overview|selection|wall/.test(text)) {
+    if (portrait) return index % 2 ? 'pan_down' : 'pan_up';
+    return index % 2 ? 'pan_left' : 'pan_right';
+  }
+  if (/top|upper/.test(text)) return 'pan_up';
+  if (/bottom|lower/.test(text)) return 'pan_down';
+  if (index === 0) return veryWide ? 'pan_right' : 'zoom_in';
+  if (index === total - 1) return portrait ? 'pan_down' : 'zoom_out';
+  const fallback = portrait
+    ? ['pan_up', 'pan_down', 'still', 'zoom_in_soft']
+    : ['pan_left', 'pan_right', 'zoom_in_soft', 'zoom_out', 'still'];
+  return fallback[index % fallback.length];
+}
+
+function motionPreset(type) {
+  const presets = {
+    zoom_in: {startZoom: 1.0, endZoom: 1.09, startFocusX: 0.5, endFocusX: 0.5, startFocusY: 0.42, endFocusY: 0.42},
+    zoom_in_soft: {startZoom: 1.01, endZoom: 1.06, startFocusX: 0.5, endFocusX: 0.5, startFocusY: 0.44, endFocusY: 0.42},
+    zoom_out: {startZoom: 1.1, endZoom: 1.01, startFocusX: 0.5, endFocusX: 0.5, startFocusY: 0.42, endFocusY: 0.42},
+    pan_left: {startZoom: 1.07, endZoom: 1.07, startFocusX: 0.7, endFocusX: 0.3, startFocusY: 0.44, endFocusY: 0.44},
+    pan_right: {startZoom: 1.07, endZoom: 1.07, startFocusX: 0.3, endFocusX: 0.7, startFocusY: 0.44, endFocusY: 0.44},
+    pan_up: {startZoom: 1.06, endZoom: 1.06, startFocusX: 0.5, endFocusX: 0.5, startFocusY: 0.68, endFocusY: 0.3},
+    pan_down: {startZoom: 1.06, endZoom: 1.06, startFocusX: 0.5, endFocusX: 0.5, startFocusY: 0.3, endFocusY: 0.68},
+    still: {startZoom: 1.02, endZoom: 1.02, startFocusX: 0.5, endFocusX: 0.5, startFocusY: 0.42, endFocusY: 0.42},
+  };
+  return presets[type] || presets.zoom_in_soft;
+}
+
+function interpolateMotion(preset, progress) {
+  return {
+    zoom: preset.startZoom + (preset.endZoom - preset.startZoom) * progress,
+    focusX: preset.startFocusX + (preset.endFocusX - preset.startFocusX) * progress,
+    focusY: preset.startFocusY + (preset.endFocusY - preset.startFocusY) * progress,
+  };
+}
+
+function drawAnimatedCoverImage(ctx, img, width, height, motionType, progress) {
+  const preset = motionPreset(motionType);
+  const frame = interpolateMotion(preset, clamp(progress, 0, 1));
+  const crop = computeCoverCrop(img, width, height);
+  const zoom = Math.max(1, frame.zoom);
+  const visibleW = crop.sw / zoom;
+  const visibleH = crop.sh / zoom;
+  const offsetX = crop.maxOffsetX * clamp(frame.focusX, 0, 1);
+  const offsetY = crop.maxOffsetY * clamp(frame.focusY, 0, 1);
+  const sx = offsetX + (crop.sw - visibleW) / 2;
+  const sy = offsetY + (crop.sh - visibleH) / 2;
+  ctx.drawImage(img, sx, sy, visibleW, visibleH, 0, 0, width, height);
+}
+
+function previewMotionTransforms(motionType) {
+  const preset = motionPreset(motionType);
+  const start = `translate(${((0.5 - preset.startFocusX) * 14).toFixed(2)}%, ${((0.5 - preset.startFocusY) * 12).toFixed(2)}%) scale(${preset.startZoom.toFixed(3)})`;
+  const end = `translate(${((0.5 - preset.endFocusX) * 14).toFixed(2)}%, ${((0.5 - preset.endFocusY) * 12).toFixed(2)}%) scale(${preset.endZoom.toFixed(3)})`;
+  return {start, end};
 }
 
 function drawTextBlock(ctx, text, x, y, maxWidth, maxLines, fontSize, lineHeight, color = '#fff', weight = 800) {
@@ -1419,11 +1644,62 @@ function reelDurationMs(item) {
   return 2200;
 }
 
+function videoSegmentForFrame(photo, requestedMs = 2200) {
+  const duration = Number(state.videoSource?.duration || 0);
+  if (!duration || !Number.isFinite(photo?.videoTime)) return null;
+
+  const frameTimes = state.photos
+    .filter((item) => item.sourceType === 'videoFrame' && Number.isFinite(item.videoTime))
+    .map((item) => Number(item.videoTime))
+    .sort((a, b) => a - b);
+  const current = Number(photo.videoTime);
+  const frameIndex = Math.max(0, frameTimes.findIndex((time) => Math.abs(time - current) < 0.03));
+  const prev = frameIndex > 0 ? frameTimes[frameIndex - 1] : null;
+  const next = frameIndex >= 0 && frameIndex < frameTimes.length - 1 ? frameTimes[frameIndex + 1] : null;
+
+  let lower = prev == null ? 0 : (prev + current) / 2;
+  let upper = next == null ? duration : (current + next) / 2;
+  if (duration > 1.2 && lower < 0.12) lower = 0.12; // skip the hand-motion that often happens right as recording starts
+  if (upper > duration - 0.05) upper = Math.max(lower + 0.25, duration - 0.05);
+
+  const available = Math.max(0.25, upper - lower);
+  const requested = clamp(Number(requestedMs || 2200) / 1000, 0.8, 5);
+  const target = Math.min(available, requested);
+  let start = current - target / 2;
+  start = clamp(start, lower, Math.max(lower, upper - target));
+  const end = Math.min(duration, start + target);
+  return {start, end, duration: Math.max(250, Math.round((end - start) * 1000))};
+}
+
 function buildReelSlides() {
   if (!state.photos.length) return [];
   const plan = Array.isArray(state.result?.reelPlan) ? state.result.reelPlan : [];
   const desiredCount = Math.min(6, Math.max(3, plan.length || state.photos.length));
+  const hasLiveVideo = Boolean(state.videoSource?.objectUrl || state.videoSource?.blob);
+  const nonVideoPhotos = state.photos.filter((photo) => photo.sourceType !== 'videoFrame');
+  const videoFrames = state.photos.filter((photo) => photo.sourceType === 'videoFrame');
+
+  // If the project is just one short video, use the real moving clip once rather than
+  // turning its three analysis frames into three separate animated stills.
+  if (hasLiveVideo && videoFrames.length && !nonVideoPhotos.length && Number(state.videoSource?.duration || 0) <= 8) {
+    const duration = Number(state.videoSource.duration || 0);
+    const start = duration > 1.2 ? 0.12 : 0;
+    const end = Math.max(start + 0.25, duration - 0.05);
+    return [{
+      dataUrl: videoFrames[Math.floor(videoFrames.length / 2)]?.dataUrl || videoFrames[0].dataUrl,
+      overlay: String(state.result?.reelHook || state.result?.overlayText || ''),
+      title: 'Original video',
+      duration: Math.round((end - start) * 1000),
+      sourceIndex: state.photos.indexOf(videoFrames[Math.floor(videoFrames.length / 2)] || videoFrames[0]),
+      sourceType: 'video',
+      videoStart: start,
+      videoEnd: end,
+      motionType: 'video',
+    }];
+  }
+
   const slides = [];
+  const usedVideoWindows = [];
   for (let i = 0; i < desiredCount; i += 1) {
     const item = plan[i] || null;
     const mediaIndex = parseReelMediaIndex(item, i);
@@ -1431,15 +1707,62 @@ function buildReelSlides() {
     const overlay = typeof item === 'object' && item?.overlayText
       ? item.overlayText
       : (i === 0 ? state.result?.reelHook : state.result?.overlayText) || state.result?.postOverlayText || '';
+    const requestedDuration = reelDurationMs(item);
+
+    if (photo?.sourceType === 'videoFrame' && hasLiveVideo) {
+      const segment = videoSegmentForFrame(photo, requestedDuration);
+      if (segment) {
+        const duplicate = usedVideoWindows.some((window) => Math.abs(window.start - segment.start) < 0.18 && Math.abs(window.end - segment.end) < 0.18);
+        if (!duplicate) {
+          usedVideoWindows.push(segment);
+          slides.push({
+            dataUrl: photo.dataUrl,
+            overlay: String(overlay || ''),
+            title: typeof item === 'object' ? String(item.title || '') : '',
+            duration: segment.duration,
+            sourceIndex: mediaIndex,
+            sourceType: 'video',
+            videoStart: segment.start,
+            videoEnd: segment.end,
+            motionType: 'video',
+          });
+        }
+        continue;
+      }
+    }
+
     slides.push({
       dataUrl: photo.dataUrl,
       overlay: String(overlay || ''),
       title: typeof item === 'object' ? String(item.title || '') : '',
-      duration: reelDurationMs(item),
+      duration: requestedDuration,
       sourceIndex: mediaIndex,
+      sourceType: 'photo',
+      motionType: chooseReelMotion(item, photo, i, desiredCount),
     });
   }
-  return slides;
+
+  // Ensure a real video project actually contributes moving footage even if the AI plan
+  // happened to reference only a photo-number wording.
+  if (hasLiveVideo && videoFrames.length && !slides.some((slide) => slide.sourceType === 'video')) {
+    const frame = videoFrames[Math.floor(videoFrames.length / 2)];
+    const segment = videoSegmentForFrame(frame, 2400);
+    if (segment) {
+      slides.splice(Math.min(1, slides.length), 0, {
+        dataUrl: frame.dataUrl,
+        overlay: String(state.result?.overlayText || ''),
+        title: 'Video clip',
+        duration: segment.duration,
+        sourceIndex: state.photos.indexOf(frame),
+        sourceType: 'video',
+        videoStart: segment.start,
+        videoEnd: segment.end,
+        motionType: 'video',
+      });
+    }
+  }
+
+  return slides.slice(0, 6);
 }
 
 function stopReelPreview() {
@@ -1447,6 +1770,7 @@ function stopReelPreview() {
   state.reelPreviewTimer = null;
   els.playReelBtn.textContent = '▶ Play preview';
   els.reelPreview.classList.remove('playing');
+  try { els.reelPreviewVideo?.pause(); } catch {}
 }
 
 function showReelSlide(index, animate = true) {
@@ -1454,11 +1778,35 @@ function showReelSlide(index, animate = true) {
   if (!slides.length) return;
   const slide = slides[index % slides.length];
   state.reelPreviewIndex = index % slides.length;
-  els.reelPreviewImage.classList.remove('scene-enter');
-  els.reelPreviewImage.src = slide.dataUrl;
   els.reelPreviewHook.textContent = state.reelPreviewIndex === 0 ? (state.result?.reelHook || '') : '';
   els.reelPreviewOverlay.textContent = slide.overlay || '';
   els.reelProgress.style.width = `${((state.reelPreviewIndex + 1) / slides.length) * 100}%`;
+
+  if (slide.sourceType === 'video' && state.videoSource?.objectUrl && els.reelPreviewVideo) {
+    els.reelPreviewImage.classList.add('hidden');
+    els.reelPreviewVideo.classList.remove('hidden');
+    if (els.reelPreviewVideo.src !== state.videoSource.objectUrl) els.reelPreviewVideo.src = state.videoSource.objectUrl;
+    const begin = () => {
+      try { els.reelPreviewVideo.currentTime = Math.max(0, Number(slide.videoStart || 0)); } catch {}
+      if (animate) els.reelPreviewVideo.play().catch(() => {});
+      else els.reelPreviewVideo.pause();
+    };
+    if (els.reelPreviewVideo.readyState >= 1) begin();
+    else els.reelPreviewVideo.addEventListener('loadedmetadata', begin, {once: true});
+    return;
+  }
+
+  if (els.reelPreviewVideo) {
+    try { els.reelPreviewVideo.pause(); } catch {}
+    els.reelPreviewVideo.classList.add('hidden');
+  }
+  els.reelPreviewImage.classList.remove('hidden');
+  els.reelPreviewImage.classList.remove('scene-enter');
+  const previewMotion = previewMotionTransforms(slide.motionType);
+  els.reelPreviewImage.style.setProperty('--reel-start-transform', previewMotion.start);
+  els.reelPreviewImage.style.setProperty('--reel-end-transform', previewMotion.end);
+  els.reelPreviewImage.style.setProperty('--reel-duration', `${Math.max(1200, slide.duration)}ms`);
+  els.reelPreviewImage.src = slide.dataUrl;
   if (animate) requestAnimationFrame(() => els.reelPreviewImage.classList.add('scene-enter'));
 }
 
@@ -1504,8 +1852,53 @@ function drawReelCanvasFrame(ctx, img, slide, progress, width, height) {
   ctx.fillRect(0, 0, width, height);
   // Keep the exported Reel clean. Suggested hook/overlay text remains in the
   // app as reference only so the user can add final text while posting.
-  drawCoverImage(ctx, img, width, height, 1 + progress * .055, .40);
+  drawAnimatedCoverImage(ctx, img, width, height, slide?.motionType || 'zoom_in_soft', progress);
   ctx.restore();
+}
+
+
+async function createSourceVideoElement() {
+  const src = state.videoSource?.objectUrl;
+  if (!src) return null;
+  const video = document.createElement('video');
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = 'auto';
+  video.src = src;
+  if (video.readyState < 1) await waitForMediaEvent(video, 'loadedmetadata');
+  if (video.readyState < 2) await waitForMediaEvent(video, 'loadeddata').catch(() => {});
+  return video;
+}
+
+async function seekVideoElement(video, time) {
+  const target = Math.max(0, Math.min(Number(time || 0), Math.max(0, Number(video.duration || 0) - 0.03)));
+  if (Math.abs(Number(video.currentTime || 0) - target) < 0.03) return;
+  video.currentTime = target;
+  await waitForMediaEvent(video, 'seeked');
+}
+
+async function renderOriginalVideoSegment(ctx, video, slide, width, height) {
+  const startSec = Math.max(0, Number(slide.videoStart || 0));
+  const endSec = Math.max(startSec + 0.15, Number(slide.videoEnd || startSec + (slide.duration || 1000) / 1000));
+  await seekVideoElement(video, startSec);
+  video.playbackRate = 1;
+  await video.play().catch(() => {});
+  const segmentMs = Math.max(150, (endSec - startSec) * 1000);
+  const started = performance.now();
+  await new Promise((resolve) => {
+    const tick = (now) => {
+      const progress = Math.min(1, (now - started) / segmentMs);
+      ctx.save();
+      ctx.fillStyle = '#111';
+      ctx.fillRect(0, 0, width, height);
+      drawCoverImage(ctx, video, width, height, 1.0, .42);
+      ctx.restore();
+      if (progress < 1 && Number(video.currentTime || 0) < endSec - 0.015) requestAnimationFrame(tick);
+      else resolve();
+    };
+    requestAnimationFrame(tick);
+  });
+  video.pause();
 }
 
 async function exportReelVideo({returnBlob = false} = {}) {
@@ -1539,10 +1932,15 @@ async function exportReelVideo({returnBlob = false} = {}) {
     const stopped = new Promise((resolve) => recorder.addEventListener('stop', resolve, {once: true}));
     recorder.start(500);
 
-    const loaded = await Promise.all(slides.map((slide) => loadImageFromDataUrl(slide.dataUrl)));
+    const loaded = await Promise.all(slides.map((slide) => slide.sourceType === 'video' ? null : loadImageFromDataUrl(slide.dataUrl)));
+    const sourceVideo = slides.some((slide) => slide.sourceType === 'video') ? await createSourceVideoElement() : null;
     for (let i = 0; i < slides.length; i += 1) {
       const slide = slides[i];
-      const img = loaded[i];
+      if (slide.sourceType === 'video' && sourceVideo) {
+        await renderOriginalVideoSegment(ctx, sourceVideo, slide, canvas.width, canvas.height);
+        continue;
+      }
+      const img = loaded[i] || await loadImageFromDataUrl(slide.dataUrl);
       const start = performance.now();
       await new Promise((resolve) => {
         const tick = (now) => {
@@ -1553,6 +1951,11 @@ async function exportReelVideo({returnBlob = false} = {}) {
         };
         requestAnimationFrame(tick);
       });
+    }
+    if (sourceVideo) {
+      try { sourceVideo.pause(); } catch {}
+      sourceVideo.removeAttribute('src');
+      sourceVideo.load?.();
     }
     recorder.stop();
     await stopped;
@@ -1616,7 +2019,7 @@ async function renderWorkerAssets() {
   }
   stopReelPreview();
   els.workerAssets.classList.remove('hidden');
-  els.assetStatus.textContent = 'Social Studio is finishing your media…';
+  els.assetStatus.textContent = 'Social Media Pal is finishing your media…';
   els.assetStatus.classList.remove('hidden');
   els.downloadFeedBtn.disabled = true;
   els.downloadStoryBtn.disabled = true;
@@ -1624,11 +2027,16 @@ async function renderWorkerAssets() {
   els.downloadReelBtn.disabled = true;
   try {
     const leadIndex = leadPhotoIndex();
+    const storyIndex = chooseStoryPhotoIndex(leadIndex);
     const leadPhoto = state.photos[leadIndex] || state.photos[0];
-    const enhanced = await createLocalEditedPhoto(leadPhoto.dataUrl, safeAiEditOptions(photoNoteText(leadIndex)));
+    const storyPhoto = state.photos[storyIndex] || leadPhoto;
+    const [enhancedFeed, enhancedStory] = await Promise.all([
+      createLocalEditedPhoto(leadPhoto.dataUrl, safeAiEditOptions(photoNoteText(leadIndex))),
+      createLocalEditedPhoto(storyPhoto.dataUrl, safeAiEditOptions(photoNoteText(storyIndex))),
+    ]);
     const [feed, story] = await Promise.all([
-      createPostGraphic(enhanced),
-      createStoryGraphic(enhanced),
+      createPostGraphic(enhancedFeed),
+      createStoryGraphic(enhancedStory),
     ]);
     state.readyAssets.feed = feed;
     state.readyAssets.story = story;
@@ -1660,8 +2068,8 @@ async function prepareWorkerPackage() {
   if (!state.readyAssets.feed || !state.readyAssets.story) return;
 
   if (state.readyAssets.packageBlob) {
-    const file = new File([state.readyAssets.packageBlob], 'social-studio-content-package.zip', {type: 'application/zip'});
-    await shareOrSaveFile(file, {title: 'Social Studio content package'});
+    const file = new File([state.readyAssets.packageBlob], 'social-media-pal-content-package.zip', {type: 'application/zip'});
+    await shareOrSaveFile(file, {title: 'Social Media Pal content package'});
     return;
   }
 
@@ -1697,9 +2105,9 @@ async function prepareWorkerPackage() {
       const ext = state.readyAssets.reelMime.includes('mp4') ? 'mp4' : 'webm';
       zip.file(`04-reel.${ext}`, state.readyAssets.reelBlob);
     } else {
-      zip.file('04-reel-note.txt', 'Your Reel preview is assembled in Social Studio. Render the Reel in the app, then use Save / Share Reel.');
+      zip.file('04-reel-note.txt', 'Your Reel preview is assembled in Social Media Pal. Render the Reel in the app, then use Save / Share Reel.');
     }
-    zip.file('README.txt', 'Social Studio Worker Mode package. Feed and Story graphics preserve the uploaded products, labels and logos; the source photos were not regenerated.');
+    zip.file('README.txt', 'Social Media Pal Worker Mode package. Feed and Story graphics preserve the uploaded products, labels and logos; the source photos were not regenerated.');
     const blob = await zip.generateAsync({type: 'blob', compression: 'DEFLATE', compressionOptions: {level: 6}});
     state.readyAssets.packageBlob = blob;
     els.downloadPackageBtn.textContent = 'Save / Share Package';
@@ -1713,8 +2121,8 @@ async function prepareWorkerPackage() {
   }
 }
 
-els.downloadFeedBtn?.addEventListener('click', () => shareDataUrlAsset(state.readyAssets.feed, 'social-studio-feed-post.jpg', 'Social Studio feed post'));
-els.downloadStoryBtn?.addEventListener('click', () => shareDataUrlAsset(state.readyAssets.story, 'social-studio-story.jpg', 'Social Studio Story'));
+els.downloadFeedBtn?.addEventListener('click', () => shareDataUrlAsset(state.readyAssets.feed, 'social-media-pal-feed-post.jpg', 'Social Media Pal feed post'));
+els.downloadStoryBtn?.addEventListener('click', () => shareDataUrlAsset(state.readyAssets.story, 'social-media-pal-story.jpg', 'Social Media Pal Story'));
 els.playReelBtn?.addEventListener('click', playReelPreview);
 els.downloadReelBtn?.addEventListener('click', async () => {
   if (!state.readyAssets.reelBlob) {
@@ -1722,8 +2130,8 @@ els.downloadReelBtn?.addEventListener('click', async () => {
     return;
   }
   const ext = state.readyAssets.reelMime.includes('mp4') ? 'mp4' : 'webm';
-  const file = new File([state.readyAssets.reelBlob], `social-studio-reel.${ext}`, {type: state.readyAssets.reelMime || state.readyAssets.reelBlob.type || 'video/mp4'});
-  await shareOrSaveFile(file, {title: 'Social Studio Reel'});
+  const file = new File([state.readyAssets.reelBlob], `social-media-pal-reel.${ext}`, {type: state.readyAssets.reelMime || state.readyAssets.reelBlob.type || 'video/mp4'});
+  await shareOrSaveFile(file, {title: 'Social Media Pal Reel'});
 });
 els.downloadPackageBtn?.addEventListener('click', prepareWorkerPackage);
 
@@ -1815,7 +2223,7 @@ els.previewGraphicBtn.addEventListener('click', () => runLocalPhotoTool('postGra
 els.downloadEditedBtn.addEventListener('click', async () => {
   if (!state.editedPhotoDataUrl) return;
   const safeLabel = (state.editedPhotoLabel || 'edited-photo').toLowerCase().replace(/[^a-z0-9]+/g, '-');
-  await shareDataUrlAsset(state.editedPhotoDataUrl, `${safeLabel || 'edited-photo'}.jpg`, state.editedPhotoLabel || 'Social Studio edited photo');
+  await shareDataUrlAsset(state.editedPhotoDataUrl, `${safeLabel || 'edited-photo'}.jpg`, state.editedPhotoLabel || 'Social Media Pal edited photo');
 });
 
 async function compressDataUrlForHistory(dataUrl) {
@@ -1850,7 +2258,7 @@ async function currentProjectSnapshot() {
       reelMode: els.reelMode.value,
     },
     photos: historyPhotos.filter((photo) => photo.dataUrl),
-    videoSource: state.videoSource,
+    videoSource: serializableVideoSource(state.videoSource),
     result: state.result,
     historyMediaCompressed: true,
   };
@@ -1892,7 +2300,7 @@ async function saveCurrentProject() {
 function loadRecentProjects() {
   try {
     const currentRaw = localStorage.getItem(PROJECTS_STORAGE_KEY);
-    const legacyRaw = localStorage.getItem('socialStudioRecentProjectsV11') || localStorage.getItem('socialStudioRecentProjectsV10') || localStorage.getItem('socialStudioRecentProjectsV09') || localStorage.getItem('socialStudioRecentProjectsV08');
+    const legacyRaw = localStorage.getItem('socialStudioRecentProjectsV14') || localStorage.getItem('socialStudioRecentProjectsV12') || localStorage.getItem('socialStudioRecentProjectsV11') || localStorage.getItem('socialStudioRecentProjectsV10') || localStorage.getItem('socialStudioRecentProjectsV09') || localStorage.getItem('socialStudioRecentProjectsV08');
     state.recentProjects = JSON.parse(currentRaw || legacyRaw || '[]');
     if (!Array.isArray(state.recentProjects)) state.recentProjects = [];
     if (!currentRaw && legacyRaw && state.recentProjects.length) {
@@ -1913,21 +2321,37 @@ function renderRecentProjects() {
     const frameCount = projectPhotos.filter((photo) => photo.sourceType === 'videoFrame').length;
     const mediaBits = [];
     if (photoCount) mediaBits.push(`${photoCount} photo${photoCount === 1 ? '' : 's'}`);
-    if (project.videoSource) mediaBits.push(`video${frameCount ? ` • ${frameCount} frame${frameCount === 1 ? '' : 's'}` : ''}`);
+    if (project.videoSource) mediaBits.push(`video${frameCount ? ` • ${frameCount} analysis frame${frameCount === 1 ? '' : 's'}` : ''}`);
     if (!mediaBits.length) mediaBits.push('saved content');
-    return `<button class="recent-project" type="button" data-project-id="${project.id}">
-      <div class="recent-project-icon">${project.videoSource ? '🎞️' : '📷'}</div>
-      <div><div class="recent-project-title">${escapeHtml(project.headline || 'Untitled project')}</div><div class="recent-project-meta">${escapeHtml(formatDateTime(project.createdAt))} • ${mediaBits.join(' • ')}</div></div>
-      <span class="recent-project-arrow">›</span>
-    </button>`;
+    return `<div class="recent-project">
+      <button class="recent-project-open" type="button" data-project-id="${project.id}">
+        <div class="recent-project-icon">${project.videoSource ? '🎞️' : '📷'}</div>
+        <div><div class="recent-project-title">${escapeHtml(project.headline || 'Untitled project')}</div><div class="recent-project-meta">${escapeHtml(formatDateTime(project.createdAt))} • ${mediaBits.join(' • ')}</div></div>
+        <span class="recent-project-arrow">›</span>
+      </button>
+      <button class="recent-project-delete" type="button" data-delete-project-id="${project.id}" aria-label="Delete ${escapeHtml(project.headline || 'project')}">🗑️</button>
+    </div>`;
   }).join('');
   els.recentProjectsList.querySelectorAll('[data-project-id]').forEach((btn) => btn.addEventListener('click', () => loadProject(btn.dataset.projectId)));
+  els.recentProjectsList.querySelectorAll('[data-delete-project-id]').forEach((btn) => btn.addEventListener('click', async () => {
+    const projectId = btn.dataset.deleteProjectId;
+    const project = state.recentProjects.find((item) => item.id === projectId);
+    if (!project) return;
+    if (!window.confirm(`Delete “${project.headline || 'this project'}”?`)) return;
+    state.recentProjects = state.recentProjects.filter((item) => item.id !== projectId);
+    try { localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(state.recentProjects)); } catch {}
+    const videoId = project.videoSource?.id;
+    if (videoId && !state.recentProjects.some((item) => item.videoSource?.id === videoId)) await deleteVideoBlobFromDb(videoId);
+    renderRecentProjects();
+    showToast('Project deleted');
+  }));
 }
 
-function applyProject(project) {
+async function applyProject(project) {
   if (!project) return;
+  releaseCurrentVideoUrl();
   state.photos = Array.isArray(project.photos) ? project.photos : [];
-  state.videoSource = project.videoSource || null;
+  state.videoSource = project.videoSource ? await hydrateVideoSource(project.videoSource) : null;
   state.result = project.result || null;
   state.readyAssets = {feed: '', story: '', reelSlides: [], reelBlob: null, reelMime: '', packageBlob: null};
   stopReelPreview();
@@ -1950,16 +2374,20 @@ function applyProject(project) {
     els.emptyState.classList.remove('hidden');
     activateView('create');
   }
-  showToast('Project loaded');
+  if (project.videoSource && !state.videoSource?.blob) showAuthNotice('Project loaded. The saved analysis frames are available, but the original video file could not be restored; choose the video again to rebuild a moving-footage Reel.');
+  else showToast('Project loaded');
 }
 
-function loadProject(projectId) {
-  applyProject(state.recentProjects.find((item) => item.id === projectId));
+async function loadProject(projectId) {
+  await applyProject(state.recentProjects.find((item) => item.id === projectId));
 }
 
-els.clearProjectsBtn.addEventListener('click', () => {
+els.clearProjectsBtn.addEventListener('click', async () => {
+  if (state.recentProjects.length && !window.confirm('Delete all recent projects?')) return;
+  const videoIds = state.recentProjects.map((project) => project.videoSource?.id).filter(Boolean);
   state.recentProjects = [];
-  ['socialStudioRecentProjectsV12', 'socialStudioRecentProjectsV11', 'socialStudioRecentProjectsV10', 'socialStudioRecentProjectsV09', 'socialStudioRecentProjectsV08'].forEach((key) => localStorage.removeItem(key));
+  ['socialStudioRecentProjectsV15', 'socialStudioRecentProjectsV14', 'socialStudioRecentProjectsV12', 'socialStudioRecentProjectsV11', 'socialStudioRecentProjectsV10', 'socialStudioRecentProjectsV09', 'socialStudioRecentProjectsV08'].forEach((key) => localStorage.removeItem(key));
+  await Promise.all(videoIds.map((id) => deleteVideoBlobFromDb(id)));
   renderRecentProjects();
   showToast('Recent projects cleared');
 });
