@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#18392f" />
+  <meta name="theme-color" content="#12473c" />
   <title>Social Studio</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -14,7 +14,7 @@
         <div class="brand-mark">OS</div>
         <div>
           <div class="eyebrow">CONTENT WORKSPACE</div>
-          <div class="title-row"><h1>Social Studio</h1><span class="version-tag">v0.8</span></div>
+          <div class="title-row"><h1>Social Studio</h1><span class="version-tag">v1.0</span></div>
         </div>
       </div>
       <div class="topbar-actions">
@@ -28,10 +28,27 @@
     <main class="workspace">
       <section class="builder-column">
         <div class="intro-card">
-          <div>
+          <div class="intro-copy">
             <span class="step-kicker">CREATE</span>
-            <h2>Turn your photos into a full social package faster.</h2>
-            <p>Upload photos once and generate captions, Reel structure, Story copy, hashtags, photo guidance, overlay text, a ready-made post graphic, and more. One-Tap Create can choose the strongest angle automatically when you do not feel like writing a full prompt.</p>
+            <h2>Turn your photos and videos into a full social package faster.</h2>
+            <p>Upload photos or a short video once and generate captions, Reel structure, Story copy, hashtags, visual guidance, overlay text, a ready-made post graphic, and more. One-Tap Create can choose the strongest angle automatically when you do not feel like writing a full prompt.</p>
+            <div class="hero-pills" aria-label="quick feature preview">
+              <span>✍️ Captions</span>
+              <span>🎬 Reel plans</span>
+              <span>✨ Story copy</span>
+              <span>📸 Photo tools</span>
+            </div>
+          </div>
+          <div class="intro-visual" aria-hidden="true">
+            <div class="visual-card visual-card-a">
+              <strong>Today’s vibe</strong>
+              <span>Warm • Local • Inviting</span>
+            </div>
+            <div class="visual-card visual-card-b">
+              <strong>One upload</strong>
+              <span>Post • Reel • Story • Graphic</span>
+            </div>
+            <div class="visual-orb"></div>
           </div>
         </div>
 
@@ -46,25 +63,25 @@
           <div id="recentProjectsList" class="recent-projects-list"></div>
         </section>
 
-        <section class="panel">
+        <section class="panel panel-upload">
           <div class="panel-heading">
             <div>
               <span class="step-number">01</span>
-              <h3>Add photos</h3>
+              <h3>Add photos or video</h3>
             </div>
-            <span class="helper">Up to 6</span>
+            <span class="helper">6 images/frames</span>
           </div>
 
           <label id="dropZone" class="drop-zone" for="photoInput">
-            <input id="photoInput" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden />
+            <input id="photoInput" type="file" accept="image/png,image/jpeg,image/webp,video/*" multiple hidden />
             <div class="upload-icon">＋</div>
-            <strong>Add photos</strong>
-            <span>Choose from your phone or computer</span>
+            <strong>Add photos or 1 video</strong>
+            <span>Videos are sampled into key frames automatically</span>
           </label>
           <div id="photoGrid" class="photo-grid" aria-live="polite"></div>
         </section>
 
-        <section class="panel">
+        <section class="panel panel-brief">
           <div class="panel-heading">
             <div>
               <span class="step-number">02</span>
@@ -119,7 +136,7 @@
           </div>
         </section>
 
-        <section class="panel compact-panel">
+        <section class="panel compact-panel panel-create">
           <div class="panel-heading">
             <div>
               <span class="step-number">03</span>
@@ -128,12 +145,12 @@
           </div>
           <div class="action-grid">
             <button id="generateBtn" class="primary-btn" type="button">
-              <span id="generateLabel">Create Social Package</span>
+              <span id="generateLabel">✨ Create Social Package</span>
               <span aria-hidden="true">→</span>
             </button>
-            <button id="oneTapBtn" class="secondary-btn large-secondary" type="button">One-Tap Create</button>
+            <button id="oneTapBtn" class="secondary-btn large-secondary" type="button">⚡ One-Tap Create</button>
           </div>
-          <p class="privacy-note">Photos are sent only when you press Create. The OpenAI key stays in Firebase Secret Manager and is never placed in this site.</p>
+          <p class="privacy-note">Photos and sampled video frames are sent only when you press Create. The original video stays on your device; Social Studio sends only the sampled still frames for analysis. The OpenAI key stays in Firebase Secret Manager and is never placed in this site.</p>
         </section>
       </section>
 
@@ -155,7 +172,10 @@
               <span class="eyebrow">YOUR SOCIAL PACKAGE</span>
               <h2 id="resultHeadline">Ready to post</h2>
             </div>
-            <button id="newBtn" class="ghost-btn" type="button">Start new</button>
+            <div class="results-header-actions">
+              <button id="detailsToggleBtn" class="ghost-btn" type="button">Expand details</button>
+              <button id="newBtn" class="ghost-btn" type="button">Start new</button>
+            </div>
           </div>
 
           <div class="refine-bar">
@@ -169,10 +189,10 @@
           </div>
 
           <div class="tab-bar" role="tablist">
-            <button class="tab active" data-tab="caption" type="button">Caption</button>
-            <button class="tab" data-tab="reel" type="button">Reel</button>
-            <button class="tab" data-tab="story" type="button">Story</button>
-            <button class="tab" data-tab="visual" type="button">Photo</button>
+            <button class="tab active" data-tab="caption" type="button"><span>✍️</span> Caption</button>
+            <button class="tab" data-tab="reel" type="button"><span>🎬</span> Reel</button>
+            <button class="tab" data-tab="story" type="button"><span>✨</span> Story</button>
+            <button class="tab" data-tab="visual" type="button"><span>📸</span> Photo</button>
           </div>
 
           <div class="result-panel" data-panel="caption">
@@ -241,13 +261,14 @@
                   <select id="selectedPhoto"></select>
                 </label>
                 <div class="tool-btn-grid">
-                  <button id="basicEditBtn" class="secondary-btn" type="button">Auto Enhance</button>
-                  <button id="aiCleanupBtn" class="secondary-btn" type="button">AI Recommended Edit</button>
-                  <button id="format45Btn" class="secondary-btn" type="button">Make 4:5 Post</button>
-                  <button id="format916Btn" class="secondary-btn" type="button">Make 9:16 Story/Reel</button>
-                  <button id="createPostGraphicBtn" class="secondary-btn" type="button">Create Post Graphic</button>
+                  <button id="basicEditBtn" class="secondary-btn" type="button">✨ Auto Enhance</button>
+                  <button id="aiCleanupBtn" class="secondary-btn" type="button">🛡️ AI Recommended Edit</button>
+                  <button id="format45Btn" class="secondary-btn" type="button">🖼️ Make 4:5 Post</button>
+                  <button id="format916Btn" class="secondary-btn" type="button">📱 Make 9:16 Story/Reel</button>
+                  <button id="createPostGraphicBtn" class="secondary-btn" type="button">🎨 Create Post Graphic</button>
                 </div>
-                <p class="helper-copy">Auto Enhance makes a tighter crop and modest color/light improvements locally. AI Recommended Edit uses the photo feedback above to make image-aware changes. Create Post Graphic turns the chosen image into a simple 4:5 post with your suggested overlay already applied.</p>
+                <div class="preserve-badge">✓ Preserve Reality: products, labels &amp; packaging stay from your original photo</div>
+                <p class="helper-copy">Auto Enhance and AI Recommended Edit are non-generative. The AI edit uses the photo feedback above to choose safe crop/light/color improvements without redrawing merchandise. Create Post Graphic turns the chosen image into a simple 4:5 post with your suggested overlay already applied.</p>
               </div>
             </div>
             <div id="editedPreviewCard" class="result-card hidden">
@@ -266,11 +287,11 @@
               <div class="preview-next-actions">
                 <span class="preview-label">Try another version</span>
                 <div class="tool-btn-grid">
-                  <button id="previewBasicBtn" class="secondary-btn" type="button">Auto Enhance</button>
-                  <button id="previewAiBtn" class="secondary-btn" type="button">AI Recommended Edit</button>
-                  <button id="preview45Btn" class="secondary-btn" type="button">4:5 Post</button>
-                  <button id="preview916Btn" class="secondary-btn" type="button">9:16 Story/Reel</button>
-                  <button id="previewGraphicBtn" class="secondary-btn" type="button">Post Graphic</button>
+                  <button id="previewBasicBtn" class="secondary-btn" type="button">✨ Auto Enhance</button>
+                  <button id="previewAiBtn" class="secondary-btn" type="button">🛡️ AI Recommended Edit</button>
+                  <button id="preview45Btn" class="secondary-btn" type="button">🖼️ 4:5 Post</button>
+                  <button id="preview916Btn" class="secondary-btn" type="button">📱 9:16 Story/Reel</button>
+                  <button id="previewGraphicBtn" class="secondary-btn" type="button">🎨 Post Graphic</button>
                 </div>
               </div>
             </div>

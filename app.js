@@ -11,8 +11,10 @@ const FIREBASE_REGION = 'us-central1';
 const FUNCTION_NAME = 'generateSocialPackage';
 const PHOTO_EDIT_FUNCTION = 'editSocialPhoto';
 const MAX_IMAGES = 6;
+const MAX_VIDEOS = 1;
+const VIDEO_FRAME_COUNT = 3;
 const MAX_TOTAL_IMAGE_CHARS = 12_000_000;
-const PROJECTS_STORAGE_KEY = 'socialStudioRecentProjectsV08';
+const PROJECTS_STORAGE_KEY = 'socialStudioRecentProjectsV10';
 const MAX_RECENT_PROJECTS = 8;
 
 const REFINE_INSTRUCTIONS = {
@@ -32,6 +34,7 @@ const state = {
   editedPhotoDataUrl: '',
   editedPhotoLabel: '',
   recentProjects: [],
+  videoSource: null,
 };
 
 const els = {
@@ -86,6 +89,7 @@ const els = {
   recentProjectsPanel: document.getElementById('recentProjectsPanel'),
   recentProjectsList: document.getElementById('recentProjectsList'),
   clearProjectsBtn: document.getElementById('clearProjectsBtn'),
+  detailsToggleBtn: document.getElementById('detailsToggleBtn'),
 };
 
 const defaultProfile = {
@@ -252,24 +256,128 @@ els.dropZone.addEventListener('drop', (e) => addFiles([...e.dataTransfer.files])
 els.includeReel.addEventListener('change', updateReelModeVisibility);
 
 async function addFiles(files) {
-  const accepted = files.filter((f) => /^image\/(jpeg|png|webp)$/.test(f.type));
-  const slots = Math.max(0, MAX_IMAGES - state.photos.length);
-  if (!slots) {
-    showToast(`Maximum of ${MAX_IMAGES} photos`);
-    return;
+  const images = files.filter((f) => /^image\/(jpeg|png|webp)$/.test(f.type));
+  const videos = files.filter((f) => String(f.type || '').startsWith('video/'));
+
+  if (videos.length > MAX_VIDEOS || (videos.length && state.videoSource)) {
+    showToast('Social Studio currently supports one video per project');
   }
 
-  for (const file of accepted.slice(0, slots)) {
+  const slots = () => Math.max(0, MAX_IMAGES - state.photos.length);
+
+  for (const file of images) {
+    if (!slots()) break;
     try {
       const optimized = await optimizeImage(file);
-      state.photos.push({name: file.name, dataUrl: optimized});
+      state.photos.push({name: file.name, dataUrl: optimized, sourceType: 'photo'});
     } catch {
       showToast(`Could not read ${file.name}`);
     }
   }
+
+  if (videos.length && !state.videoSource && slots()) {
+    const file = videos[0];
+    try {
+      showToast('Analyzing video frames…');
+      const extracted = await extractVideoFrames(file, Math.min(VIDEO_FRAME_COUNT, slots()));
+      extracted.frames.forEach((frame, index) => {
+        state.photos.push({
+          name: `${file.name} — frame ${index + 1}`,
+          dataUrl: frame.dataUrl,
+          sourceType: 'videoFrame',
+          videoName: file.name,
+          videoTime: frame.time,
+        });
+      });
+      state.videoSource = {
+        name: file.name,
+        duration: extracted.duration,
+        frameCount: extracted.frames.length,
+      };
+      showToast(`Video ready — ${extracted.frames.length} key frames sampled`);
+    } catch (error) {
+      console.error(error);
+      showAuthNotice('That video could not be sampled. Try an MP4, MOV, or WebM clip.');
+    }
+  }
+
+  if (!images.length && !videos.length) {
+    showToast('Choose a JPG, PNG, WebP, MP4, MOV, or WebM file');
+  } else if (!slots() && (images.length + videos.length) > 0) {
+    showToast(`Maximum of ${MAX_IMAGES} photos/video frames`);
+  }
+
   renderPhotos();
   refreshSelectedPhotoOptions();
   els.photoInput.value = '';
+}
+
+function waitForMediaEvent(target, eventName) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error(`Timed out waiting for ${eventName}`));
+    }, 12000);
+    const onEvent = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      cleanup();
+      reject(target.error || new Error(`Media error before ${eventName}`));
+    };
+    const cleanup = () => {
+      clearTimeout(timeout);
+      target.removeEventListener(eventName, onEvent);
+      target.removeEventListener('error', onError);
+    };
+    target.addEventListener(eventName, onEvent, {once: true});
+    target.addEventListener('error', onError, {once: true});
+  });
+}
+
+async function extractVideoFrames(file, frameCount = VIDEO_FRAME_COUNT) {
+  const video = document.createElement('video');
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = 'auto';
+  const objectUrl = URL.createObjectURL(file);
+  video.src = objectUrl;
+
+  try {
+    if (video.readyState < 1) await waitForMediaEvent(video, 'loadedmetadata');
+    if (video.readyState < 2) await waitForMediaEvent(video, 'loadeddata');
+
+    const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 1;
+    const safeCount = Math.max(1, Math.min(VIDEO_FRAME_COUNT, Number(frameCount) || 1));
+    const positions = safeCount === 1
+      ? [0.5]
+      : Array.from({length: safeCount}, (_, index) => 0.12 + ((0.76 * index) / (safeCount - 1)));
+    const frames = [];
+
+    for (const ratio of positions) {
+      const target = Math.min(Math.max(0, duration * ratio), Math.max(0, duration - 0.05));
+      if (Math.abs(video.currentTime - target) > 0.02) {
+        video.currentTime = target;
+        await waitForMediaEvent(video, 'seeked');
+      }
+
+      const maxSide = 1400;
+      const sourceWidth = video.videoWidth || 1280;
+      const sourceHeight = video.videoHeight || 720;
+      const scale = Math.min(1, maxSide / Math.max(sourceWidth, sourceHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+      canvas.height = Math.max(1, Math.round(sourceHeight * scale));
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      frames.push({time: target, dataUrl: canvas.toDataURL('image/jpeg', .82)});
+    }
+
+    return {duration, frames};
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 function optimizeImage(file) {
@@ -299,17 +407,23 @@ function optimizeImage(file) {
 }
 
 function renderPhotos() {
-  els.photoGrid.innerHTML = state.photos.map((photo, i) => `
+  els.photoGrid.innerHTML = state.photos.map((photo, i) => {
+    const isVideo = photo.sourceType === 'videoFrame';
+    const badge = isVideo ? `VIDEO F${state.photos.slice(0, i + 1).filter((p) => p.sourceType === 'videoFrame').length}` : `PHOTO ${i + 1}`;
+    const time = isVideo && Number.isFinite(photo.videoTime) ? `<span class="video-time">${photo.videoTime.toFixed(1)}s</span>` : '';
+    return `
     <div class="photo-item">
-      <img src="${photo.dataUrl}" alt="Photo ${i + 1}" />
-      <span class="photo-badge">PHOTO ${i + 1}</span>
-      <button class="photo-remove" type="button" data-index="${i}" aria-label="Remove photo ${i + 1}">×</button>
-    </div>
-  `).join('');
+      <img src="${photo.dataUrl}" alt="${isVideo ? 'Video frame' : 'Photo'} ${i + 1}" />
+      <span class="photo-badge">${badge}</span>
+      ${time}
+      <button class="photo-remove" type="button" data-index="${i}" aria-label="Remove media ${i + 1}">×</button>
+    </div>`;
+  }).join('');
 
   els.photoGrid.querySelectorAll('.photo-remove').forEach((btn) => {
     btn.addEventListener('click', () => {
       state.photos.splice(Number(btn.dataset.index), 1);
+      if (!state.photos.some((p) => p.sourceType === 'videoFrame')) state.videoSource = null;
       state.selectedPhotoIndex = Math.min(state.selectedPhotoIndex, Math.max(0, state.photos.length - 1));
       clearEditedPreview();
       renderPhotos();
@@ -318,12 +432,12 @@ function renderPhotos() {
   });
 }
 
-function setPackageLoading(isLoading, label = 'Create Social Package') {
+function setPackageLoading(isLoading, label = '✨ Create Social Package') {
   state.isLoading = isLoading;
   els.generateBtn.disabled = isLoading;
   els.oneTapBtn.disabled = isLoading;
   els.refineBtns.forEach((btn) => { btn.disabled = isLoading; });
-  els.generateLabel.textContent = isLoading ? label : 'Create Social Package';
+  els.generateLabel.textContent = isLoading ? label : '✨ Create Social Package';
 }
 
 function setActivePhotoButton(button, isLoading, loadingText = 'Working…') {
@@ -339,6 +453,7 @@ function setActivePhotoButton(button, isLoading, loadingText = 'Working…') {
 }
 
 function buildPayload(action = 'generate', refineInstruction = '', extras = {}) {
+  const videoFrames = state.photos.filter((p) => p.sourceType === 'videoFrame');
   return {
     action,
     oneTap: Boolean(extras.oneTap),
@@ -354,6 +469,17 @@ function buildPayload(action = 'generate', refineInstruction = '', extras = {}) 
     },
     profile: getProfile(),
     images: state.photos.map((p) => p.dataUrl),
+    mediaManifest: state.photos.map((p, index) => ({
+      imageNumber: index + 1,
+      sourceType: p.sourceType === 'videoFrame' ? 'videoFrame' : 'photo',
+      name: p.name || '',
+      videoTime: Number.isFinite(p.videoTime) ? Number(p.videoTime.toFixed(2)) : null,
+    })),
+    videoContext: state.videoSource ? {
+      ...state.videoSource,
+      frameCount: videoFrames.length,
+      frameTimes: videoFrames.map((p) => Number(p.videoTime || 0).toFixed(1)),
+    } : null,
     currentResult: action === 'refine' ? state.result : undefined,
     refineInstruction: action === 'refine' ? refineInstruction : undefined,
   };
@@ -401,7 +527,7 @@ async function runPackageRequest(action = 'generate', refineInstruction = '', ex
     state.result = data.result;
     clearEditedPreview();
     renderResult(data.result);
-    saveCurrentProject();
+    await saveCurrentProject();
     els.apiStatus.textContent = 'Firebase AI ready';
     els.apiStatus.className = 'status-pill live';
   } catch (error) {
@@ -472,14 +598,46 @@ function renderSequence(id, items, label) {
     el.innerHTML = '<div class="formatted-output">Not generated for this package.</div>';
     return;
   }
+  const openByDefault = window.innerWidth > 700;
   el.innerHTML = items.map((item, i) => {
     const title = typeof item === 'string' ? `${label} ${i + 1}` : (item.title || `${label} ${i + 1}`);
     const detail = typeof item === 'string' ? item : (item.detail || item.note || '');
     const overlay = typeof item === 'object' ? (item.overlayText || '') : '';
     const overlayHtml = overlay ? `<div class="overlay-chip"><span>Overlay:</span> ${escapeHtml(overlay)}</div>` : '';
-    return `<div class="sequence-item"><div class="sequence-index">${i + 1}</div><div><strong>${escapeHtml(title)}</strong><p>${escapeHtml(detail)}</p>${overlayHtml}</div></div>`;
+    return `<details class="sequence-item" ${openByDefault ? 'open' : ''}>
+      <summary><span class="sequence-index">${i + 1}</span><strong>${escapeHtml(title)}</strong><span class="sequence-chevron">⌄</span></summary>
+      <div class="sequence-detail"><p>${escapeHtml(detail)}</p>${overlayHtml}</div>
+    </details>`;
   }).join('');
+  updateDetailsToggleLabel();
 }
+
+function visibleSequenceDetails() {
+  return [...document.querySelectorAll('.result-panel:not(.hidden) details.sequence-item')];
+}
+
+function updateDetailsToggleLabel() {
+  if (!els.detailsToggleBtn) return;
+  const details = visibleSequenceDetails();
+  if (!details.length) {
+    els.detailsToggleBtn.classList.add('hidden');
+    return;
+  }
+  els.detailsToggleBtn.classList.remove('hidden');
+  const allOpen = details.every((item) => item.open);
+  els.detailsToggleBtn.textContent = allOpen ? 'Collapse details' : 'Expand details';
+}
+
+els.detailsToggleBtn?.addEventListener('click', () => {
+  const details = visibleSequenceDetails();
+  const shouldOpen = !details.every((item) => item.open);
+  details.forEach((item) => { item.open = shouldOpen; });
+  updateDetailsToggleLabel();
+});
+
+document.addEventListener('toggle', (event) => {
+  if (event.target?.matches?.('details.sequence-item')) updateDetailsToggleLabel();
+}, true);
 
 function activateTab(name) {
   document.querySelectorAll('.tab').forEach((tab) => {
@@ -488,6 +646,7 @@ function activateTab(name) {
   document.querySelectorAll('.result-panel').forEach((panel) => {
     panel.classList.toggle('hidden', panel.dataset.panel !== name);
   });
+  updateDetailsToggleLabel();
 }
 
 document.querySelectorAll('.tab').forEach((tab) => {
@@ -527,9 +686,17 @@ els.newBtn.addEventListener('click', () => {
 });
 
 function refreshSelectedPhotoOptions() {
-  els.selectedPhoto.innerHTML = state.photos.map((photo, index) =>
-    `<option value="${index}">Photo ${index + 1}${photo.name ? ` — ${escapeHtml(photo.name)}` : ''}</option>`
-  ).join('');
+  let videoFrameNumber = 0;
+  let photoNumber = 0;
+  els.selectedPhoto.innerHTML = state.photos.map((photo, index) => {
+    const isVideoFrame = photo.sourceType === 'videoFrame';
+    if (isVideoFrame) videoFrameNumber += 1;
+    else photoNumber += 1;
+    const label = isVideoFrame
+      ? `Video frame ${videoFrameNumber}${Number.isFinite(photo.videoTime) ? ` (${photo.videoTime.toFixed(1)}s)` : ''}`
+      : `Photo ${photoNumber}`;
+    return `<option value="${index}">${label}${photo.name ? ` — ${escapeHtml(photo.name)}` : ''}</option>`;
+  }).join('');
   els.selectedPhoto.disabled = !state.photos.length;
   if (state.photos.length) {
     state.selectedPhotoIndex = Math.min(state.selectedPhotoIndex, state.photos.length - 1);
@@ -548,11 +715,31 @@ function getSelectedPhoto() {
 
 function leadPhotoIndex() {
   const lead = state.result?.leadImage || '';
-  const match = lead.match(/photo\s*(\d+)/i);
-  if (match) {
-    const index = Math.max(0, Number(match[1]) - 1);
+
+  const imageMatch = lead.match(/image\s*(\d+)/i);
+  if (imageMatch) {
+    const index = Math.max(0, Number(imageMatch[1]) - 1);
     if (state.photos[index]) return index;
   }
+
+  const frameMatch = lead.match(/(?:video\s*)?frame\s*(\d+)/i);
+  if (frameMatch) {
+    const frameNumber = Math.max(1, Number(frameMatch[1]));
+    const frameIndexes = state.photos
+      .map((photo, index) => photo.sourceType === 'videoFrame' ? index : -1)
+      .filter((index) => index >= 0);
+    if (frameIndexes[frameNumber - 1] !== undefined) return frameIndexes[frameNumber - 1];
+  }
+
+  const photoMatch = lead.match(/photo\s*(\d+)/i);
+  if (photoMatch) {
+    const photoNumber = Math.max(1, Number(photoMatch[1]));
+    const photoIndexes = state.photos
+      .map((photo, index) => photo.sourceType !== 'videoFrame' ? index : -1)
+      .filter((index) => index >= 0);
+    if (photoIndexes[photoNumber - 1] !== undefined) return photoIndexes[photoNumber - 1];
+  }
+
   return Math.min(state.selectedPhotoIndex, Math.max(0, state.photos.length - 1));
 }
 
@@ -616,11 +803,12 @@ async function createLocalEditedPhoto(dataUrl, options = {}) {
       sh = img.width / targetAspect;
       sy = Math.max(0, (img.height - sh) * 0.38);
     }
-  } else if (mode === 'basic') {
-    sx = img.width * 0.07;
-    sy = img.height * 0.07;
-    sw = img.width * 0.86;
-    sh = img.height * 0.86;
+  } else {
+    const crop = Math.max(0, Math.min(0.14, Number(options.crop ?? (mode === 'basic' ? 0.07 : 0.04))));
+    sx = img.width * crop;
+    sy = img.height * crop;
+    sw = img.width * (1 - crop * 2);
+    sh = img.height * (1 - crop * 2);
   }
 
   const outputWidth = targetAspect ? 1200 : Math.max(1, Math.round(sw));
@@ -629,11 +817,26 @@ async function createLocalEditedPhoto(dataUrl, options = {}) {
   canvas.width = outputWidth;
   canvas.height = outputHeight;
   const ctx = canvas.getContext('2d');
-  ctx.filter = mode === 'basic'
-    ? 'brightness(1.10) contrast(1.10) saturate(1.07) sepia(0.025)'
-    : 'brightness(1.05) contrast(1.06) saturate(1.04) sepia(0.02)';
+
+  const brightness = Number(options.brightness ?? (mode === 'basic' ? 1.10 : 1.06));
+  const contrast = Number(options.contrast ?? (mode === 'basic' ? 1.10 : 1.08));
+  const saturation = Number(options.saturation ?? (mode === 'basic' ? 1.07 : 1.04));
+  const warmth = Number(options.warmth ?? (mode === 'basic' ? 0.025 : 0.018));
+  ctx.filter = `brightness(${brightness}) contrast(${contrast}) saturate(${saturation}) sepia(${warmth})`;
   ctx.drawImage(img, sx, sy, sw, sh, 0, 0, outputWidth, outputHeight);
-  return canvas.toDataURL('image/jpeg', 0.92);
+  return canvas.toDataURL('image/jpeg', 0.94);
+}
+
+function safeAiEditOptions(noteText = '') {
+  const note = String(noteText).toLowerCase();
+  return {
+    mode: 'safeAi',
+    crop: /crop|tighter|framing|composition/.test(note) ? 0.055 : 0.025,
+    brightness: /exposure|bright|dark|shadow|lighting/.test(note) ? 1.08 : 1.045,
+    contrast: /contrast|clarity|sharp|pop|readability/.test(note) ? 1.10 : 1.06,
+    saturation: /color|warm|vibran|tone/.test(note) ? 1.055 : 1.025,
+    warmth: /warm|yellow|gold|cozy/.test(note) ? 0.025 : 0.012,
+  };
 }
 
 function wrapText(ctx, text, maxWidth) {
@@ -676,10 +879,10 @@ async function createPostGraphic(dataUrl) {
 
   ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
 
-  const overlayGradient = ctx.createLinearGradient(0, canvas.height * 0.42, 0, canvas.height);
+  const overlayGradient = ctx.createLinearGradient(0, canvas.height * 0.40, 0, canvas.height);
   overlayGradient.addColorStop(0, 'rgba(0,0,0,0)');
   overlayGradient.addColorStop(0.55, 'rgba(0,0,0,0.24)');
-  overlayGradient.addColorStop(1, 'rgba(0,0,0,0.72)');
+  overlayGradient.addColorStop(1, 'rgba(0,0,0,0.76)');
   ctx.fillStyle = overlayGradient;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -690,32 +893,50 @@ async function createPostGraphic(dataUrl) {
 
   const left = 70;
   const maxWidth = canvas.width - left * 2;
+
+  let subFontSize = 27;
+  let footerLines = [];
+  do {
+    ctx.font = `600 ${subFontSize}px Inter, Arial, sans-serif`;
+    footerLines = wrapText(ctx, subText, maxWidth);
+    if (footerLines.length <= 2 && footerLines.every((line) => ctx.measureText(line).width <= maxWidth)) break;
+    subFontSize -= 2;
+  } while (subFontSize > 18);
+  footerLines = footerLines.slice(0, 2);
+  const footerLineHeight = Math.round(subFontSize * 1.22);
+  const footerBottom = 58;
+  const footerHeight = footerLines.length * footerLineHeight;
+
   let fontSize = 82;
   let lines = [];
   do {
     ctx.font = `800 ${fontSize}px Inter, Arial, sans-serif`;
     lines = wrapText(ctx, text, maxWidth);
+    if (lines.length <= 4 && lines.every((line) => ctx.measureText(line).width <= maxWidth)) break;
     fontSize -= 4;
-  } while ((lines.length > 4 || lines.some((line) => ctx.measureText(line).width > maxWidth)) && fontSize > 44);
+  } while (fontSize > 44);
 
   const lineHeight = Math.round(fontSize * 1.05);
   const textBlockHeight = lines.length * lineHeight;
-  const subFontSize = 28;
-  const footerGap = 26;
-  let y = canvas.height - 90 - subFontSize - footerGap - textBlockHeight;
+  const gapToFooter = 34;
+  const textBottom = canvas.height - footerBottom - footerHeight - gapToFooter;
+  const y = Math.max(canvas.height * 0.54, textBottom - textBlockHeight);
 
-  ctx.fillStyle = 'rgba(255,255,255,0.94)';
+  ctx.fillStyle = 'rgba(255,255,255,0.96)';
   ctx.font = `800 ${fontSize}px Inter, Arial, sans-serif`;
   ctx.textBaseline = 'top';
   lines.forEach((line, index) => {
     ctx.fillText(line, left, y + (index * lineHeight));
   });
 
-  ctx.fillStyle = 'rgba(255,255,255,0.88)';
+  ctx.fillStyle = 'rgba(255,255,255,0.90)';
   ctx.font = `600 ${subFontSize}px Inter, Arial, sans-serif`;
-  ctx.fillText(subText, left, canvas.height - 96);
+  const footerY = canvas.height - footerBottom - footerHeight;
+  footerLines.forEach((line, index) => {
+    ctx.fillText(line, left, footerY + (index * footerLineHeight));
+  });
 
-  return canvas.toDataURL('image/jpeg', 0.94);
+  return canvas.toDataURL('image/jpeg', 0.95);
 }
 
 async function runLocalPhotoTool(tool, sourceButton = null) {
@@ -772,38 +993,23 @@ async function runAiCleanup(sourceButton = null) {
     showToast('Choose a photo first');
     return;
   }
-  if (!state.authReady) {
-    showToast('Connecting to Firebase…');
-    return;
-  }
-  if (!state.user) {
-    showAuthNotice('Sign in with Google first, then try AI Clean Up.');
-    await signIn();
+  if (!state.result) {
+    showToast('Create a package first so the AI has photo feedback to follow');
     return;
   }
 
-  setActivePhotoButton(sourceButton, true, 'AI editing…');
+  setActivePhotoButton(sourceButton, true, 'Applying safe edit…');
   try {
-    const response = await editSocialPhoto({
-      image: photo.dataUrl,
-      editType: 'cleanup',
-      noteText: selectedPhotoNoteText(),
-    });
-    const data = response?.data || {};
-    if (!data.imageDataUrl) throw new Error('No edited photo was returned.');
-    showEditedPreview(data.imageDataUrl, 'AI recommended edit', 'AI used the photo-analysis notes above to make image-aware cleanup/composition improvements. Compare it with the original carefully, especially product labels and packaging.');
+    const note = selectedPhotoNoteText();
+    const edited = await createLocalEditedPhoto(photo.dataUrl, safeAiEditOptions(note));
+    showEditedPreview(
+      edited,
+      'AI recommended edit — Preserve Reality',
+      'Used the AI photo-analysis notes to choose a safe crop and light/color polish. This edit is non-generative: it does not redraw, replace, invent, or relabel products, packaging, logos, or shelf contents.'
+    );
   } catch (error) {
     console.error(error);
-    const code = String(error?.code || '');
-    if (code.includes('resource-exhausted')) {
-      showAuthNotice('Photo editing is temporarily rate limited. Try again shortly.');
-    } else if (code.includes('invalid-argument')) {
-      showAuthNotice(error?.message || 'That photo could not be edited. Try another image.');
-    } else if (code.includes('unauthenticated')) {
-      showAuthNotice('Your sign-in expired. Sign in again and retry.');
-    } else {
-      showAuthNotice(error?.message || 'AI photo editing is temporarily unavailable.');
-    }
+    showAuthNotice('That photo could not be safely adjusted in the browser.');
   } finally {
     setActivePhotoButton(sourceButton, false);
   }
@@ -831,7 +1037,28 @@ els.downloadEditedBtn.addEventListener('click', () => {
   a.remove();
 });
 
-function currentProjectSnapshot() {
+async function compressDataUrlForHistory(dataUrl) {
+  try {
+    const img = await loadImageFromDataUrl(dataUrl);
+    const maxSide = 520;
+    const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(img.width * scale));
+    canvas.height = Math.max(1, Math.round(img.height * scale));
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.62);
+  } catch {
+    return '';
+  }
+}
+
+async function currentProjectSnapshot() {
+  const historyPhotos = await Promise.all(state.photos.map(async (photo) => ({
+    ...photo,
+    dataUrl: await compressDataUrlForHistory(photo.dataUrl),
+  })));
+
   return {
     id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     createdAt: Date.now(),
@@ -846,25 +1073,62 @@ function currentProjectSnapshot() {
       hashtags: els.includeHashtags.checked,
       reelMode: els.reelMode.value,
     },
-    photos: state.photos,
+    photos: historyPhotos.filter((photo) => photo.dataUrl),
+    videoSource: state.videoSource,
     result: state.result,
+    historyMediaCompressed: true,
   };
 }
 
-function saveCurrentProject() {
+async function saveCurrentProject() {
   if (!state.result) return;
-  const snapshot = currentProjectSnapshot();
+  const snapshot = await currentProjectSnapshot();
   const deduped = state.recentProjects.filter((item) =>
     !(item.headline === snapshot.headline && item.description === snapshot.description));
   state.recentProjects = [snapshot, ...deduped].slice(0, MAX_RECENT_PROJECTS);
-  localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(state.recentProjects));
+
+  const save = (projects) => {
+    localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(projects));
+    state.recentProjects = projects;
+  };
+
+  try {
+    save(state.recentProjects);
+  } catch (error) {
+    console.warn('Recent project storage is full; trimming older projects.', error);
+    let trimmed = [...state.recentProjects];
+    let saved = false;
+    while (trimmed.length > 1 && !saved) {
+      trimmed = trimmed.slice(0, -1);
+      try {
+        save(trimmed);
+        saved = true;
+      } catch {}
+    }
+    if (!saved) {
+      const lightweight = [{...snapshot, photos: [], videoSource: null}];
+      try {
+        save(lightweight);
+        showToast('Project saved without media preview to save phone storage');
+      } catch {
+        state.recentProjects = [];
+      }
+    } else {
+      showToast('Older project history was trimmed to save phone storage');
+    }
+  }
   renderRecentProjects();
 }
 
 function loadRecentProjects() {
   try {
-    state.recentProjects = JSON.parse(localStorage.getItem(PROJECTS_STORAGE_KEY) || '[]');
+    const currentRaw = localStorage.getItem(PROJECTS_STORAGE_KEY);
+    const legacyRaw = localStorage.getItem('socialStudioRecentProjectsV09') || localStorage.getItem('socialStudioRecentProjectsV08');
+    state.recentProjects = JSON.parse(currentRaw || legacyRaw || '[]');
     if (!Array.isArray(state.recentProjects)) state.recentProjects = [];
+    if (!currentRaw && legacyRaw && state.recentProjects.length) {
+      try { localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(state.recentProjects)); } catch {}
+    }
   } catch {
     state.recentProjects = [];
   }
@@ -878,12 +1142,20 @@ function renderRecentProjects() {
     els.recentProjectsList.innerHTML = '';
     return;
   }
-  els.recentProjectsList.innerHTML = list.map((project) => `
+  els.recentProjectsList.innerHTML = list.map((project) => {
+    const projectPhotos = Array.isArray(project.photos) ? project.photos : [];
+    const photoCount = projectPhotos.filter((photo) => photo.sourceType !== 'videoFrame').length;
+    const frameCount = projectPhotos.filter((photo) => photo.sourceType === 'videoFrame').length;
+    const mediaBits = [];
+    if (photoCount) mediaBits.push(`${photoCount} photo${photoCount === 1 ? '' : 's'}`);
+    if (project.videoSource) mediaBits.push(`video${frameCount ? ` • ${frameCount} sampled frame${frameCount === 1 ? '' : 's'}` : ''}`);
+    if (!mediaBits.length) mediaBits.push('saved content');
+    return `
     <button class="recent-project" type="button" data-project-id="${project.id}">
       <div class="recent-project-title">${escapeHtml(project.headline || 'Untitled project')}</div>
-      <div class="recent-project-meta">${escapeHtml(formatDateTime(project.createdAt))} • ${project.photos?.length || 0} photo${(project.photos?.length || 0) === 1 ? '' : 's'}</div>
-    </button>
-  `).join('');
+      <div class="recent-project-meta">${escapeHtml(formatDateTime(project.createdAt))} • ${mediaBits.join(' • ')}</div>
+    </button>`;
+  }).join('');
 
   els.recentProjectsList.querySelectorAll('[data-project-id]').forEach((btn) => {
     btn.addEventListener('click', () => loadProject(btn.dataset.projectId));
@@ -893,6 +1165,7 @@ function renderRecentProjects() {
 function applyProject(project) {
   if (!project) return;
   state.photos = Array.isArray(project.photos) ? project.photos : [];
+  state.videoSource = project.videoSource || null;
   state.result = project.result || null;
   els.description.value = project.description || '';
   els.contentType.value = project.contentType || 'Full social package';
@@ -924,6 +1197,8 @@ function loadProject(projectId) {
 els.clearProjectsBtn.addEventListener('click', () => {
   state.recentProjects = [];
   localStorage.removeItem(PROJECTS_STORAGE_KEY);
+  localStorage.removeItem('socialStudioRecentProjectsV09');
+  localStorage.removeItem('socialStudioRecentProjectsV08');
   renderRecentProjects();
   showToast('Recent projects cleared');
 });

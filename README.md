@@ -1,16 +1,15 @@
-# Social Studio v0.7 — GitHub Pages frontend
+# Social Studio v1.0 — GitHub Pages frontend
 
-Frontend-only usability update. No Firebase redeploy is required if v0.5 is already deployed.
-
-## What's fixed
-- Photo-tool buttons no longer all grey out when one edit is running.
-- Only the active photo tool shows a working/disabled state.
-- Auto Enhance is stronger and more visible than the prior subtle Basic Edit.
-- The result explains what changed.
-- After an adjusted-photo preview, all four photo tools are repeated directly below the preview so you can immediately try another version.
-- `AI Clean Up` is renamed `AI Recommended Edit` to better reflect that it uses the photo-analysis notes.
-- Every photo tool still starts from the original uploaded photo, avoiding compounded edits.
-- Visible version label updated to v0.7.
+## Included in v1.0
+- **More colorful, visual UI:** brighter section accents, icon tabs, friendlier cards and stronger mobile hierarchy.
+- **Preserve Reality photo editing:** AI Recommended Edit applies non-generative crop/light/color changes in the browser, guided by the AI photo notes. It does not redraw products, labels, packaging, logos, or shelf contents.
+- **Video upload beta:** upload one supported browser-playable video. Social Studio samples up to 3 frames locally and sends only those still frames for AI analysis; the original video stays on the device.
+- **Compact mobile results:** Reel steps and photo notes are collapsible, with an Expand/Collapse control and sticky result tabs on mobile.
+- **Plain-language directions:** Reel guidance avoids unexplained editing jargon and stays concise.
+- **Safer post graphics:** overlay and business/location text wrap within the graphic safe area.
+- **Recent Projects:** carries forward v0.8/v0.9 history, stores compressed project media to reduce phone storage pressure, and properly clears legacy history when requested.
+- **Improved mixed photo/video labeling:** AI and the frontend now share an explicit media order so lead-image selection and frame references stay accurate.
+- **Version visible on mobile:** v1.0 remains visible in the header.
 
 ## Upload to GitHub
 Replace the files in the root of the existing Social-content-studio repository with:
@@ -21,8 +20,4 @@ Replace the files in the root of the existing Social-content-studio repository w
 - vercel.json
 - .gitignore
 
-
-## v0.7
-- Reel directions now avoid unexplained filmmaking jargon.
-- Instructions use plain actions such as “slowly zoom out for 3 seconds.”
-- Reel plan heading is clearer on the results screen.
+The Firebase functions should also be updated with the v1.0 standalone Firebase ZIP before testing the new video-aware generation flow.
