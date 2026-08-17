@@ -20,7 +20,7 @@
       <div class="topbar-inner">
         <div class="brand-lockup">
           <div class="brand-mark">SM</div>
-          <div class="title-row"><h1>Social Media Pal</h1><span class="version-tag">v1.9.1</span></div>
+          <div class="title-row"><h1>Social Media Pal</h1><span class="version-tag">v1.9.2</span></div>
         </div>
         <div class="topbar-actions">
           <span id="apiStatus" class="status-pill demo">Sign in to connect</span>
@@ -248,7 +248,30 @@
                 <button id="downloadReelBtn" class="asset-action" type="button">Render Reel</button>
                 <button class="approve-btn" data-approve="reel" type="button">✓ Use This Reel</button>
               </div>
-              <p class="asset-helper">Built automatically from your uploaded media and the AI plan. Reel text is kept as reference only, so the exported Reel stays clean for you to add your own text when posting. If video was uploaded, Social Media Pal uses the original moving footage to build the Reel automatically. When you add multiple clips, it can blend together several short highlight moments. Sampled frames are only for AI analysis.</p>
+
+              <section class="reel-feedback-card" aria-label="Reel editing controls">
+                <div class="reel-feedback-head">
+                  <div><span>EDIT THIS REEL</span><strong>Tell Pal what to change</strong></div>
+                  <small>No need to start over</small>
+                </div>
+                <div id="reelSceneSummary" class="reel-scene-summary" aria-live="polite"></div>
+                <div class="reel-feedback-buttons">
+                  <button class="reel-adjust-btn" data-reel-adjust="longer" type="button">⏱️ Longer Clips</button>
+                  <button class="reel-adjust-btn" data-reel-adjust="faster" type="button">⚡ Faster</button>
+                  <button class="reel-adjust-btn" data-reel-adjust="slower" type="button">🌿 Slower</button>
+                  <button class="reel-adjust-btn" data-reel-adjust="smooth" type="button">✨ Smoother Transitions</button>
+                  <button class="reel-adjust-btn" data-reel-adjust="more_video" type="button">🎥 Use More Video</button>
+                  <button class="reel-adjust-btn" data-reel-adjust="another" type="button">🔄 Try Another Edit</button>
+                </div>
+                <label class="reel-feedback-text-wrap" for="reelFeedbackText">
+                  <span>Or tell Pal exactly what you want changed</span>
+                  <textarea id="reelFeedbackText" rows="2" placeholder="Example: Keep the first video longer and make the transitions softer."></textarea>
+                </label>
+                <button id="applyReelFeedbackBtn" class="asset-action reel-feedback-apply" type="button">Apply Changes to Reel</button>
+                <div id="reelFeedbackStatus" class="reel-feedback-status" aria-live="polite"></div>
+              </section>
+
+              <p class="asset-helper">Built automatically from your uploaded media and the AI plan. Video clips now default to a more watchable pace, and scene changes use a true visual crossfade instead of fading through black. Reel text stays reference-only so the exported Reel remains clean.</p>
             </article>
 
             <div id="assetStatus" class="asset-status">Finishing your media…</div>

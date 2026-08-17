@@ -1112,3 +1112,112 @@ label > span { display: block; margin-bottom: 7px; color: #43564f; font-size: 12
 .pal-pick span { flex: 0 0 auto; color: #8b6d0a; font-size: 8px; font-weight: 950; letter-spacing: .08em; }
 .pal-pick strong { font-size: 10px; line-height: 1.35; }
 @media (max-width: 520px) { .pal-pick { align-items: flex-start; flex-direction: column; gap: 3px; } }
+
+/* v1.9.2 — Reel editor polish */
+.reel-preview {
+  background-color: #111;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+.reel-preview img,
+.reel-preview video {
+  transition: opacity .38s ease;
+  will-change: opacity, transform;
+}
+.reel-feedback-card {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid rgba(20,72,58,.12);
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(237,249,244,.95), rgba(250,247,255,.95));
+}
+.reel-feedback-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.reel-feedback-head > div { display: grid; gap: 3px; }
+.reel-feedback-head span {
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .12em;
+  color: #4f7468;
+}
+.reel-feedback-head strong { font-size: 14px; color: var(--ink); }
+.reel-feedback-head small { font-size: 9px; color: var(--muted); }
+.reel-scene-summary {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 2px 0 10px;
+  scrollbar-width: none;
+}
+.reel-scene-summary::-webkit-scrollbar { display: none; }
+.reel-scene-chip {
+  flex: 0 0 auto;
+  padding: 7px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(20,72,58,.12);
+  background: rgba(255,255,255,.82);
+  font-size: 9px;
+  font-weight: 800;
+  color: #365a50;
+  white-space: nowrap;
+}
+.reel-feedback-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+.reel-adjust-btn {
+  min-height: 42px;
+  padding: 9px 8px;
+  border: 1px solid rgba(20,72,58,.12);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--brand);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 850;
+  cursor: pointer;
+}
+.reel-adjust-btn:active { transform: translateY(1px); }
+.reel-feedback-text-wrap {
+  display: grid;
+  gap: 6px;
+  margin-top: 11px;
+}
+.reel-feedback-text-wrap > span {
+  font-size: 9px;
+  font-weight: 800;
+  color: #53635d;
+}
+#reelFeedbackText {
+  width: 100%;
+  min-height: 66px;
+  resize: vertical;
+  border: 1px solid rgba(20,72,58,.14);
+  border-radius: 12px;
+  padding: 10px 11px;
+  background: rgba(255,255,255,.9);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  box-sizing: border-box;
+}
+.reel-feedback-apply { width: 100%; margin-top: 8px; }
+.reel-feedback-status {
+  min-height: 16px;
+  margin-top: 7px;
+  color: #42685d;
+  font-size: 9px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+@media (min-width: 720px) {
+  .reel-feedback-buttons { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
