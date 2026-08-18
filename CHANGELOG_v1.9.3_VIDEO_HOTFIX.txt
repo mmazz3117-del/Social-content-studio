@@ -1,0 +1,9 @@
+Social Media Pal v1.9.3 — Video Transition Hotfix
+
+• Stops sampled analysis thumbnails from flashing between real video clips.
+• Keeps the previous real video frame visible while the next clip seeks/decodes.
+• Waits for the next video frame to be ready before revealing it in preview.
+• Starts clip timing after the video is actually ready on screen.
+• Removes black/dark transition flashes in Reel export by preserving the previous frame under the crossfade.
+• Reel export runs at 30 fps for smoother motion.
+• No Firebase/backend deployment is required for this frontend update.

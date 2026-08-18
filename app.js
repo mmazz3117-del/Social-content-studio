@@ -2667,56 +2667,118 @@ function applyFreeformReelFeedback() {
   rebuildReelFromFeedback(notes.length ? `Applied: ${[...new Set(notes)].join(', ')}` : 'Reel rebuilt from your feedback');
 }
 
+function captureReelPreviewVisual() {
+  const video = els.reelPreviewVideo;
+  if (video && !video.classList.contains('hidden') && video.readyState >= 2 && video.videoWidth && video.videoHeight) {
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.min(720, video.videoWidth);
+      canvas.height = Math.max(1, Math.round(canvas.width * (video.videoHeight / video.videoWidth)));
+      canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL('image/jpeg', .82);
+    } catch (error) {
+      console.info('Could not capture current Reel preview frame', error);
+    }
+  }
+  const image = els.reelPreviewImage;
+  if (image && !image.classList.contains('hidden') && image.src && image.complete) return image.src;
+  return '';
+}
+
+function clearReelPreviewBackdrop() {
+  if (!els.reelPreview) return;
+  els.reelPreview.style.backgroundImage = 'none';
+  els.reelPreview.style.backgroundSize = 'cover';
+  els.reelPreview.style.backgroundPosition = 'center';
+  els.reelPreview.style.backgroundRepeat = 'no-repeat';
+}
+
 function stopReelPreview() {
   if (state.reelPreviewTimer) clearTimeout(state.reelPreviewTimer);
   state.reelPreviewTimer = null;
+  state.reelPreviewRunId = Number(state.reelPreviewRunId || 0) + 1;
   els.playReelBtn.textContent = '▶ Play preview';
   els.reelPreview.classList.remove('playing');
   try { els.reelPreviewVideo?.pause(); } catch {}
+  if (els.reelPreviewVideo) els.reelPreviewVideo.style.opacity = '1';
+  if (els.reelPreviewImage) els.reelPreviewImage.style.opacity = '1';
+  clearReelPreviewBackdrop();
 }
 
-function showReelSlide(index, animate = true) {
+async function showReelSlide(index, animate = true, runId = null) {
   const slides = state.readyAssets.reelSlides || [];
-  if (!slides.length) return;
+  if (!slides.length) return false;
   const normalizedIndex = index % slides.length;
   const slide = slides[normalizedIndex];
-  const previousSlide = normalizedIndex > 0 ? slides[normalizedIndex - 1] : null;
   const transitionMs = Math.max(0, Number(editingIntentFromDescription().transitionMs || 0));
+  const previousVisual = captureReelPreviewVisual();
   state.reelPreviewIndex = normalizedIndex;
   els.reelPreviewHook.textContent = state.reelPreviewIndex === 0 ? (state.result?.reelHook || '') : '';
   els.reelPreviewOverlay.textContent = slide.overlay || '';
   els.reelProgress.style.width = `${((state.reelPreviewIndex + 1) / slides.length) * 100}%`;
 
+  const stillCurrent = () => runId == null || Number(state.reelPreviewRunId || 0) === runId;
   const stageTransition = (mediaElement) => {
-    if (!mediaElement) return;
+    if (!mediaElement || !stillCurrent()) return;
+    mediaElement.style.transitionProperty = 'opacity';
+    mediaElement.style.transitionTimingFunction = 'ease';
     mediaElement.style.transitionDuration = `${transitionMs}ms`;
-    if (animate && previousSlide?.dataUrl && transitionMs > 0) {
-      els.reelPreview.style.backgroundImage = `url("${previousSlide.dataUrl}")`;
+    if (animate && previousVisual && transitionMs > 0) {
+      // Important: use the ACTUAL frame that was on screen, never a sampled analysis
+      // thumbnail. Earlier builds used slide.dataUrl here for video scenes, which caused
+      // the close-up flashes the user could see between clips.
+      els.reelPreview.style.backgroundImage = `url("${previousVisual}")`;
+      els.reelPreview.style.backgroundSize = 'cover';
+      els.reelPreview.style.backgroundPosition = 'center';
+      els.reelPreview.style.backgroundRepeat = 'no-repeat';
       mediaElement.style.opacity = '0';
-      requestAnimationFrame(() => requestAnimationFrame(() => { mediaElement.style.opacity = '1'; }));
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (stillCurrent()) mediaElement.style.opacity = '1';
+      }));
       setTimeout(() => {
-        if (state.reelPreviewIndex === normalizedIndex) els.reelPreview.style.backgroundImage = slide.dataUrl ? `url("${slide.dataUrl}")` : 'none';
-      }, transitionMs + 80);
+        if (stillCurrent() && state.reelPreviewIndex === normalizedIndex) clearReelPreviewBackdrop();
+      }, transitionMs + 90);
     } else {
       mediaElement.style.opacity = '1';
-      els.reelPreview.style.backgroundImage = slide.dataUrl ? `url("${slide.dataUrl}")` : 'none';
+      clearReelPreviewBackdrop();
     }
   };
 
   const slideVideoSource = slide.sourceType === 'video' ? (videoSourceById(slide.sourceVideoId) || primaryVideoSource()) : null;
   if (slide.sourceType === 'video' && slideVideoSource?.objectUrl && els.reelPreviewVideo) {
+    const previewVideo = els.reelPreviewVideo;
+    try { previewVideo.pause(); } catch {}
+    if (previousVisual && animate && transitionMs > 0) {
+      els.reelPreview.style.backgroundImage = `url("${previousVisual}")`;
+      els.reelPreview.style.backgroundSize = 'cover';
+      els.reelPreview.style.backgroundPosition = 'center';
+    }
+    previewVideo.style.opacity = previousVisual && animate && transitionMs > 0 ? '0' : '1';
     els.reelPreviewImage.classList.add('hidden');
-    els.reelPreviewVideo.classList.remove('hidden');
-    if (els.reelPreviewVideo.src !== slideVideoSource.objectUrl) els.reelPreviewVideo.src = slideVideoSource.objectUrl;
-    const begin = () => {
-      try { els.reelPreviewVideo.currentTime = Math.max(0, Number(slide.videoStart || 0)); } catch {}
-      stageTransition(els.reelPreviewVideo);
-      if (animate) els.reelPreviewVideo.play().catch(() => {});
-      else els.reelPreviewVideo.pause();
-    };
-    if (els.reelPreviewVideo.readyState >= 1) begin();
-    else els.reelPreviewVideo.addEventListener('loadedmetadata', begin, {once: true});
-    return;
+    previewVideo.classList.remove('hidden');
+    if (previewVideo.src !== slideVideoSource.objectUrl) {
+      previewVideo.src = slideVideoSource.objectUrl;
+      try { previewVideo.load(); } catch {}
+    }
+    try {
+      if (previewVideo.readyState < 1) await waitForMediaEvent(previewVideo, 'loadedmetadata');
+      if (!stillCurrent()) return false;
+      // Wait for the requested moment to be decoded BEFORE revealing or starting the
+      // scene. This prevents the momentary wrong/old frame that looked like a jump.
+      await seekVideoRobust(previewVideo, Math.max(0, Number(slide.videoStart || 0)));
+      if (!stillCurrent()) return false;
+      stageTransition(previewVideo);
+      if (animate) await previewVideo.play().catch(() => {});
+      else previewVideo.pause();
+      return true;
+    } catch (error) {
+      console.info('Reel preview seek failed; showing the source without a sampled-frame fallback', error);
+      if (!stillCurrent()) return false;
+      clearReelPreviewBackdrop();
+      previewVideo.style.opacity = '1';
+      if (animate) previewVideo.play().catch(() => {});
+      return true;
+    }
   }
 
   if (els.reelPreviewVideo) {
@@ -2731,32 +2793,46 @@ function showReelSlide(index, animate = true) {
   els.reelPreviewImage.style.setProperty('--reel-end-transform', previewMotion.end);
   els.reelPreviewImage.style.setProperty('--reel-duration', `${Math.max(1200, slide.duration)}ms`);
   els.reelPreviewImage.src = slide.dataUrl;
+  if (els.reelPreviewImage.decode) await els.reelPreviewImage.decode().catch(() => {});
+  if (!stillCurrent()) return false;
   stageTransition(els.reelPreviewImage);
   if (animate) requestAnimationFrame(() => els.reelPreviewImage.classList.add('scene-enter'));
+  return true;
 }
 
 function playReelPreview() {
   const slides = state.readyAssets.reelSlides || [];
   if (!slides.length) return;
-  if (state.reelPreviewTimer) {
+  if (state.reelPreviewTimer || els.reelPreview.classList.contains('playing')) {
     stopReelPreview();
     return;
   }
+  const runId = Number(state.reelPreviewRunId || 0) + 1;
+  state.reelPreviewRunId = runId;
   els.playReelBtn.textContent = '■ Stop preview';
   els.reelPreview.classList.add('playing');
   let index = 0;
-  const advance = () => {
-    showReelSlide(index, true);
+
+  const advance = async () => {
+    if (Number(state.reelPreviewRunId || 0) !== runId) return;
+    const slide = slides[index];
+    const shown = await showReelSlide(index, true, runId);
+    if (!shown || Number(state.reelPreviewRunId || 0) !== runId) return;
+    const visibleDuration = Math.max(500, Number(slide?.duration || 1500));
     index += 1;
     if (index >= slides.length) {
-      state.reelPreviewTimer = setTimeout(() => {
+      state.reelPreviewTimer = setTimeout(async () => {
+        if (Number(state.reelPreviewRunId || 0) !== runId) return;
         stopReelPreview();
-        showReelSlide(0, false);
-      }, slides[slides.length - 1].duration);
+        await showReelSlide(0, false);
+      }, visibleDuration);
       return;
     }
-    state.reelPreviewTimer = setTimeout(advance, slides[index - 1].duration);
+    // The timer begins only after the new video moment has actually been decoded and
+    // shown. On iPhone this is critical; otherwise seek time steals most of the clip.
+    state.reelPreviewTimer = setTimeout(advance, visibleDuration);
   };
+
   advance();
 }
 
@@ -2788,9 +2864,14 @@ function crossfadeBlend(elapsedMs, transitionMs, hasPreviousFrame) {
 function beginCanvasScene(ctx, width, height, previousFrame, blend) {
   ctx.save();
   ctx.globalAlpha = 1;
-  ctx.fillStyle = '#111';
-  ctx.fillRect(0, 0, width, height);
-  if (previousFrame && blend < 1) ctx.drawImage(previousFrame, 0, 0, width, height);
+  if (previousFrame) {
+    // Keep the last real frame underneath the incoming scene for the full crossfade.
+    // Do not expose a black canvas between scenes.
+    ctx.drawImage(previousFrame, 0, 0, width, height);
+  } else {
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, width, height);
+  }
   ctx.restore();
 }
 
@@ -2828,6 +2909,7 @@ async function renderOriginalVideoSegment(ctx, video, slide, width, height, prev
   const startSec = Math.max(0, Number(slide.videoStart || 0));
   const endSec = Math.max(startSec + 0.15, Number(slide.videoEnd || startSec + (slide.duration || 1000) / 1000));
   await seekVideoElement(video, startSec);
+  await ensureVideoFrameDecoded(video).catch(() => {});
   video.playbackRate = 1;
   await video.play().catch(() => {});
   const segmentMs = Math.max(150, (endSec - startSec) * 1000);
@@ -2965,7 +3047,7 @@ async function exportReelVideo({returnBlob = false} = {}) {
     canvas.width = 720;
     canvas.height = 1280;
     const ctx = canvas.getContext('2d');
-    const fps = 24;
+    const fps = 30;
     const stream = canvas.captureStream(fps);
     const recorder = new MediaRecorder(stream, {mimeType, videoBitsPerSecond: 5_000_000});
     const chunks = [];

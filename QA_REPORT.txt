@@ -1,18 +1,5 @@
-Social Media Pal v1.9 FINAL QA
-
-PASS: JavaScript syntax check (node --check app.js)
-PASS: no duplicate HTML ids
-PASS: every static getElementById reference exists in index.html
-PASS: Tell Pal controls present: tellPalBtn, voiceStatus, micMode, testMicBtn, micLevelBar
-PASS: version badge is v1.9
-PASS: manifest name remains Social Media Pal
-PASS: all manifest icon files exist
-PASS: microphone mode preference uses its own local-storage key
-PASS: v1.9 remains frontend-only; Firebase function names/config were not changed
-PASS: description-aware Reel editing logic is connected to pacing, clip duration, motion bias and transition softness
-
-DEVICE TEST STILL REQUIRED:
-- iPhone microphone permission behavior
-- Web Speech API availability in the exact Safari/home-screen environment
-- Mono vs Stereo effect on the user's specific microphone issue
-- live multi-video Reel export on iPhone
+Social Media Pal v1.9.3 video hotfix QA
+- app.js syntax: PASS (node --check)
+- index.html references app.js/styles.css/manifest/icons: PASS
+- package structure: root-flat for GitHub Pages
+- hotfix checks: previous real frame transition, decoded video reveal, 30 fps Reel export present

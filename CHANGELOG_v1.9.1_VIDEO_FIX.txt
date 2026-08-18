@@ -1,0 +1,17 @@
+Social Media Pal v1.9.1 — Video Fix (GitHub-only)
+
+This patch keeps the existing v1.9 Tell Pal / microphone behavior unchanged.
+No Firebase deployment is required.
+
+Video reliability changes:
+- More robust iPhone/Safari video frame decoding and seeking.
+- Retries stalled iOS video seeks instead of immediately failing the upload.
+- A failed analysis snapshot no longer automatically means the original video is discarded.
+- Original video can remain available for Reel assembly even when frame analysis is limited.
+- Video-only projects can proceed when the source clip is available, even if analysis-frame extraction is incomplete.
+- Reel fallback can use the original moving clip without requiring a successful thumbnail frame first.
+- Worker Mode can attempt a local fallback still from the original video for Post/Story creation.
+
+Mic / Tell Pal:
+- Unchanged from v1.9.
+- Continue using Stereo if that is the working microphone setting on the device.

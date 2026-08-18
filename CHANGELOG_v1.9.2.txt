@@ -1,0 +1,22 @@
+Social Media Pal v1.9.2 — Reel Editor Polish
+August 16, 2026
+
+This is a frontend-only update. No Firebase deployment is required.
+
+What changed
+- Multi-video projects now default to longer, more watchable continuous moments (about 2.5–4 seconds when the source footage supports it).
+- Video-only projects with several clips now give each uploaded video a strong scene before reusing another moment from the same source.
+- Reel exports no longer fade scenes through black. The renderer overlaps the previous scene frame with the incoming scene for a smooth visual crossfade.
+- Reel preview also keeps the previous scene visible while the incoming photo/video fades in, reducing the dark flash between clips.
+- Added an EDIT THIS REEL panel directly under the finished Reel.
+- One-tap adjustments: Longer Clips, Faster, Slower, Smoother Transitions, Use More Video, Try Another Edit.
+- Added free-text Reel feedback. Examples: “Keep the first video longer and make the transitions softer” or “Use more video and make it faster.”
+- Added a scene-duration summary showing the approximate time Pal selected for each photo/video scene.
+- Reel feedback rebuilds only the Reel; the user does not need to upload media or recreate the social package.
+- When an edit changes the Reel, the old rendered Reel is discarded so the next Render Reel creates the newly requested cut.
+- Reel edit preferences are saved with recent projects.
+
+Unchanged
+- Tell Pal microphone behavior is unchanged from the working v1.9.1 video-fix build.
+- The user’s working Stereo microphone setting remains available/remembered.
+- Reel overlay text remains reference-only and is not burned into the exported video.
