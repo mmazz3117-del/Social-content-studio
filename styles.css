@@ -759,7 +759,7 @@ label > span { display: block; margin-bottom: 7px; color: #43564f; font-size: 12
 .reel-preview { position: relative; grid-row: span 3; width: 100%; aspect-ratio: 9 / 16; max-height: 440px; overflow: hidden; border-radius: 14px; background: #111; border: 1px solid rgba(20,72,58,.10); }
 .reel-preview img, .reel-preview video { width: 100%; height: 100%; display: block; object-fit: cover; }
 .reel-preview img { transform: var(--reel-start-transform, scale(1.01)); transition: transform var(--reel-duration, 2.2s) ease, opacity .18s ease; will-change: transform; }
-.reel-preview video { background: #111; }
+.reel-preview video { background: transparent; }
 .reel-preview.playing img.scene-enter { transform: var(--reel-end-transform, scale(1.065)); }
 .reel-shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.02) 36%, rgba(0,0,0,.70) 100%); pointer-events: none; }
 .reel-copy { position: absolute; left: 16px; right: 16px; bottom: 26px; color: #fff; text-shadow: 0 2px 12px rgba(0,0,0,.25); }
@@ -1220,4 +1220,31 @@ label > span { display: block; margin-bottom: 7px; color: #43564f; font-size: 12
 }
 @media (min-width: 720px) {
   .reel-feedback-buttons { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+
+/* v1.9.3 — iPhone Reel playback reliability */
+.reel-preview img,
+.reel-preview video {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
+}
+.reel-adjust-btn.is-working {
+  opacity: .65;
+  pointer-events: none;
+}
+.reel-adjust-btn.just-applied {
+  border-color: rgba(20,110,83,.45);
+  background: #eaf8f2;
+  box-shadow: 0 0 0 2px rgba(20,110,83,.08);
+}
+.reel-feedback-status.is-updated {
+  color: #155d49;
+  font-weight: 900;
+}
+.reel-transition-chip {
+  background: #eef7ff;
+  color: #345e73;
+  border-color: rgba(52,94,115,.16);
 }
