@@ -1,5 +1,8 @@
-Social Media Pal v1.9.3 video hotfix QA
-- app.js syntax: PASS (node --check)
-- index.html references app.js/styles.css/manifest/icons: PASS
-- package structure: root-flat for GitHub Pages
-- hotfix checks: previous real frame transition, decoded video reveal, 30 fps Reel export present
+Social Media Pal v1.9.4 motion-transition QA
+
+PASS — app.js parses with Node syntax check.
+PASS — index.html contains unique element IDs.
+PASS — index.html includes both Reel preview video layers.
+PASS — app.js references reelPreviewVideoB.
+PASS — Reel export target remains 30 fps.
+PASS — package is root-flat for GitHub Pages upload.

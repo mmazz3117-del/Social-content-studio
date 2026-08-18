@@ -1,7 +1,7 @@
-# Social Media Pal v1.9.3 — Video Hotfix
+# Social Media Pal v1.9.4 — Motion-to-Motion Reel Transitions
 
-GitHub Pages frontend package. Upload the files in this ZIP to the repository root, replacing files with the same names.
+Frontend-only GitHub Pages build. No Firebase function deployment is required for this release.
 
-This build includes the v1.9.3 Reel video hotfix: real moving footage remains the transition source, sampled analysis frames are not flashed between clips, video reveal waits for decode/seek readiness, and Reel export uses 30 fps.
+This build fixes the pause/jump behavior between Reel video clips. The preview now uses two video layers so the incoming clip can be prepared while the outgoing clip keeps moving. The exported Reel preloads selected video start points before recording begins and overlaps outgoing/incoming moving media during transitions instead of holding a frozen last frame.
 
-No Firebase deployment is required for this update.
+Upload the contents of this folder to the root of the GitHub Pages repository, replacing files with matching names.

@@ -1,0 +1,10 @@
+Social Media Pal v1.9.4 — Motion-to-Motion Reel Transitions
+
+- Added a second Reel preview video layer so the next clip can be preloaded and seeked while the current clip is still moving.
+- Video-to-video transitions now overlap moving footage instead of freezing the outgoing clip on its last frame.
+- Reel preview transitions begin before the outgoing scene stops, removing the stop/jump rhythm seen on iPhone.
+- Reel export now prepares all selected clip start points before MediaRecorder begins, so seek/decode delays are not recorded as frozen frames.
+- Export transitions render outgoing and incoming media at the same time for a true moving crossfade with no black intermediate frame.
+- Reel export remains 30 fps and preserves original moving footage.
+- Smoother Transitions now uses the motion-to-motion transition engine.
+- Frontend only; no Firebase function deployment required.

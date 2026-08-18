@@ -20,7 +20,7 @@
       <div class="topbar-inner">
         <div class="brand-lockup">
           <div class="brand-mark">SM</div>
-          <div class="title-row"><h1>Social Media Pal</h1><span class="version-tag">v1.9.3</span></div>
+          <div class="title-row"><h1>Social Media Pal</h1><span class="version-tag">v1.9.4</span></div>
         </div>
         <div class="topbar-actions">
           <span id="apiStatus" class="status-pill demo">Sign in to connect</span>
@@ -235,6 +235,7 @@
               <div id="reelPreview" class="reel-preview worker-reel-preview" aria-label="Reel preview">
                 <img id="reelPreviewImage" alt="Reel scene preview" />
                 <video id="reelPreviewVideo" class="hidden" muted playsinline preload="metadata"></video>
+                <video id="reelPreviewVideoB" class="hidden" muted playsinline preload="metadata"></video>
                 <div id="reelProgress" class="reel-progress"></div>
               </div>
               <div class="reel-text-reference" aria-label="Suggested Reel text reference">
@@ -271,7 +272,7 @@
                 <div id="reelFeedbackStatus" class="reel-feedback-status" aria-live="polite"></div>
               </section>
 
-              <p class="asset-helper">Built automatically from your uploaded media and the AI plan. Video clips now wait until the iPhone has actually loaded each selected moment before the scene timer begins, and scene changes crossfade directly from one frame to the next without a black intermediate frame. Reel text stays reference-only so the exported Reel remains clean.</p>
+              <p class="asset-helper">Built automatically from your uploaded media and the AI plan. Video scenes are preloaded before they are needed, and transitions overlap moving footage instead of freezing the last frame before the next clip. Reel text stays reference-only so the exported Reel remains clean.</p>
             </article>
 
             <div id="assetStatus" class="asset-status">Finishing your media…</div>

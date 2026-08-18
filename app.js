@@ -111,6 +111,7 @@ const els = {
   reelPreview: document.getElementById('reelPreview'),
   reelPreviewImage: document.getElementById('reelPreviewImage'),
   reelPreviewVideo: document.getElementById('reelPreviewVideo'),
+  reelPreviewVideoB: document.getElementById('reelPreviewVideoB'),
   reelPreviewHook: document.getElementById('reelPreviewHook'),
   reelPreviewOverlay: document.getElementById('reelPreviewOverlay'),
   reelProgress: document.getElementById('reelProgress'),
@@ -291,11 +292,15 @@ function releaseCurrentVideoUrl() {
       try { URL.revokeObjectURL(source.objectUrl); } catch {}
     }
   });
-  if (els.reelPreviewVideo) {
-    try { els.reelPreviewVideo.pause(); } catch {}
-    els.reelPreviewVideo.removeAttribute('src');
-    els.reelPreviewVideo.load?.();
-  }
+  [els.reelPreviewVideo, els.reelPreviewVideoB].filter(Boolean).forEach((previewVideo) => {
+    try { previewVideo.pause(); } catch {}
+    previewVideo.removeAttribute('src');
+    previewVideo.load?.();
+    previewVideo.classList.add('hidden');
+    previewVideo.style.opacity = '1';
+    delete previewVideo.dataset.previewActive;
+    delete previewVideo.dataset.preparedIndex;
+  });
   if (els.storyAssetPreviewVideo) {
     try { els.storyAssetPreviewVideo.pause(); } catch {}
     els.storyAssetPreviewVideo.removeAttribute('src');
@@ -1697,11 +1702,15 @@ function resetForNewProject() {
     els.storyAssetPreview.classList.remove('hidden');
   }
   if (els.reelPreviewImage) els.reelPreviewImage.removeAttribute('src');
-  if (els.reelPreviewVideo) {
-    try { els.reelPreviewVideo.pause(); } catch {}
-    els.reelPreviewVideo.removeAttribute('src');
-    els.reelPreviewVideo.load?.();
-  }
+  [els.reelPreviewVideo, els.reelPreviewVideoB].filter(Boolean).forEach((previewVideo) => {
+    try { previewVideo.pause(); } catch {}
+    previewVideo.removeAttribute('src');
+    previewVideo.load?.();
+    previewVideo.classList.add('hidden');
+    previewVideo.style.opacity = '1';
+    delete previewVideo.dataset.previewActive;
+    delete previewVideo.dataset.preparedIndex;
+  });
   if (els.reelPreviewHook) els.reelPreviewHook.textContent = '';
   if (els.reelPreviewOverlay) els.reelPreviewOverlay.textContent = '';
   if (els.assetStatus) els.assetStatus.textContent = '';
@@ -2596,7 +2605,7 @@ function applyReelAdjustment(kind) {
   }
   if (kind === 'smooth') {
     state.reelEditPrefs.transitionMs = Math.max(Number(state.reelEditPrefs.transitionMs || 320), 500);
-    rebuildReelFromFeedback('Transitions made softer');
+    rebuildReelFromFeedback('Using motion-to-motion transitions');
     return;
   }
   if (kind === 'more_video') {
@@ -2641,7 +2650,7 @@ function applyFreeformReelFeedback() {
   }
   if (/smooth|softer|soft transition|gentle transition|crossfade|less abrupt|no flash/.test(text)) {
     state.reelEditPrefs.transitionMs = Math.max(Number(state.reelEditPrefs.transitionMs || 320), 500);
-    notes.push('smoother transitions');
+    notes.push('motion-to-motion transitions');
   }
   if (/more video|more footage|mostly video|use the videos/.test(text)) {
     state.reelEditPrefs.preferVideoBoost = true;
@@ -2667,9 +2676,26 @@ function applyFreeformReelFeedback() {
   rebuildReelFromFeedback(notes.length ? `Applied: ${[...new Set(notes)].join(', ')}` : 'Reel rebuilt from your feedback');
 }
 
+let reelPreviewPrepared = null;
+
+function reelPreviewVideos() {
+  return [els.reelPreviewVideo, els.reelPreviewVideoB].filter(Boolean);
+}
+
+function activeReelPreviewVideo() {
+  return reelPreviewVideos().find((video) => video.dataset.previewActive === '1' && !video.classList.contains('hidden'))
+    || reelPreviewVideos().find((video) => !video.classList.contains('hidden') && Number(video.style.opacity || 1) > .5)
+    || null;
+}
+
+function inactiveReelPreviewVideo() {
+  const active = activeReelPreviewVideo();
+  return reelPreviewVideos().find((video) => video !== active) || reelPreviewVideos()[0] || null;
+}
+
 function captureReelPreviewVisual() {
-  const video = els.reelPreviewVideo;
-  if (video && !video.classList.contains('hidden') && video.readyState >= 2 && video.videoWidth && video.videoHeight) {
+  const video = activeReelPreviewVideo();
+  if (video && video.readyState >= 2 && video.videoWidth && video.videoHeight) {
     try {
       const canvas = document.createElement('canvas');
       canvas.width = Math.min(720, video.videoWidth);
@@ -2693,16 +2719,120 @@ function clearReelPreviewBackdrop() {
   els.reelPreview.style.backgroundRepeat = 'no-repeat';
 }
 
+function clearPreparedPreviewVideo() {
+  reelPreviewPrepared = null;
+  reelPreviewVideos().forEach((video) => {
+    if (video.dataset.previewActive === '1') return;
+    delete video.dataset.preparedIndex;
+  });
+}
+
 function stopReelPreview() {
   if (state.reelPreviewTimer) clearTimeout(state.reelPreviewTimer);
   state.reelPreviewTimer = null;
   state.reelPreviewRunId = Number(state.reelPreviewRunId || 0) + 1;
   els.playReelBtn.textContent = '▶ Play preview';
   els.reelPreview.classList.remove('playing');
-  try { els.reelPreviewVideo?.pause(); } catch {}
-  if (els.reelPreviewVideo) els.reelPreviewVideo.style.opacity = '1';
-  if (els.reelPreviewImage) els.reelPreviewImage.style.opacity = '1';
+  reelPreviewVideos().forEach((video) => {
+    try { video.pause(); } catch {}
+    video.style.transitionDuration = '0ms';
+    video.style.opacity = '1';
+    if (video.dataset.previewActive !== '1') video.classList.add('hidden');
+  });
+  if (els.reelPreviewImage) {
+    els.reelPreviewImage.style.transitionDuration = '0ms';
+    els.reelPreviewImage.style.opacity = '1';
+  }
+  clearPreparedPreviewVideo();
   clearReelPreviewBackdrop();
+}
+
+async function preparePreviewVideoSlide(index, runId = null) {
+  const slides = state.readyAssets.reelSlides || [];
+  const slide = slides[index];
+  if (!slide || slide.sourceType !== 'video') return null;
+  const source = videoSourceById(slide.sourceVideoId) || primaryVideoSource();
+  if (!source?.objectUrl) return null;
+
+  if (reelPreviewPrepared
+      && reelPreviewPrepared.index === index
+      && reelPreviewPrepared.runId === runId
+      && reelPreviewPrepared.video?.dataset.preparedIndex === String(index)) {
+    return reelPreviewPrepared.video;
+  }
+
+  const current = activeReelPreviewVideo();
+  const candidate = reelPreviewVideos().find((video) => video !== current) || inactiveReelPreviewVideo();
+  if (!candidate) return null;
+
+  try { candidate.pause(); } catch {}
+  delete candidate.dataset.previewActive;
+  candidate.dataset.preparedIndex = String(index);
+  candidate.style.transitionDuration = '0ms';
+  candidate.style.opacity = '0';
+  candidate.style.zIndex = '3';
+  candidate.classList.remove('hidden');
+
+  if (candidate.src !== source.objectUrl) {
+    candidate.src = source.objectUrl;
+    try { candidate.load(); } catch {}
+  }
+  if (candidate.readyState < 1) await waitForMediaEvent(candidate, 'loadedmetadata');
+  if (runId != null && Number(state.reelPreviewRunId || 0) !== runId) return null;
+  await seekVideoRobust(candidate, Math.max(0, Number(slide.videoStart || 0)));
+  try { candidate.pause(); } catch {}
+  if (runId != null && Number(state.reelPreviewRunId || 0) !== runId) return null;
+
+  reelPreviewPrepared = {index, runId, video: candidate};
+  return candidate;
+}
+
+function hidePreviewLayer(layer) {
+  if (!layer) return;
+  if (layer.tagName === 'VIDEO') {
+    try { layer.pause(); } catch {}
+    delete layer.dataset.previewActive;
+  }
+  layer.classList.add('hidden');
+  layer.style.opacity = '1';
+  layer.style.transitionDuration = '0ms';
+  layer.style.zIndex = '1';
+}
+
+async function crossfadePreviewLayers(incoming, outgoing, transitionMs, runId = null) {
+  const stillCurrent = () => runId == null || Number(state.reelPreviewRunId || 0) === runId;
+  if (!incoming || !stillCurrent()) return false;
+
+  const duration = Math.max(0, Math.min(700, Number(transitionMs || 0)));
+  incoming.classList.remove('hidden');
+  incoming.style.zIndex = '3';
+  incoming.style.transitionProperty = 'opacity';
+  incoming.style.transitionTimingFunction = 'linear';
+  incoming.style.transitionDuration = `${duration}ms`;
+
+  if (!outgoing || outgoing === incoming || !duration) {
+    incoming.style.opacity = '1';
+    if (outgoing && outgoing !== incoming) hidePreviewLayer(outgoing);
+    return stillCurrent();
+  }
+
+  outgoing.classList.remove('hidden');
+  outgoing.style.zIndex = '2';
+  outgoing.style.transitionProperty = 'opacity';
+  outgoing.style.transitionTimingFunction = 'linear';
+  outgoing.style.transitionDuration = `${duration}ms`;
+  outgoing.style.opacity = '1';
+  incoming.style.opacity = '0';
+
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  if (!stillCurrent()) return false;
+  incoming.style.opacity = '1';
+  outgoing.style.opacity = '0';
+  await new Promise((resolve) => setTimeout(resolve, duration + 30));
+  if (!stillCurrent()) return false;
+  hidePreviewLayer(outgoing);
+  incoming.style.zIndex = '2';
+  return true;
 }
 
 async function showReelSlide(index, animate = true, runId = null) {
@@ -2711,92 +2841,87 @@ async function showReelSlide(index, animate = true, runId = null) {
   const normalizedIndex = index % slides.length;
   const slide = slides[normalizedIndex];
   const transitionMs = Math.max(0, Number(editingIntentFromDescription().transitionMs || 0));
-  const previousVisual = captureReelPreviewVisual();
+  const stillCurrent = () => runId == null || Number(state.reelPreviewRunId || 0) === runId;
+
   state.reelPreviewIndex = normalizedIndex;
   els.reelPreviewHook.textContent = state.reelPreviewIndex === 0 ? (state.result?.reelHook || '') : '';
   els.reelPreviewOverlay.textContent = slide.overlay || '';
   els.reelProgress.style.width = `${((state.reelPreviewIndex + 1) / slides.length) * 100}%`;
 
-  const stillCurrent = () => runId == null || Number(state.reelPreviewRunId || 0) === runId;
-  const stageTransition = (mediaElement) => {
-    if (!mediaElement || !stillCurrent()) return;
-    mediaElement.style.transitionProperty = 'opacity';
-    mediaElement.style.transitionTimingFunction = 'ease';
-    mediaElement.style.transitionDuration = `${transitionMs}ms`;
-    if (animate && previousVisual && transitionMs > 0) {
-      // Important: use the ACTUAL frame that was on screen, never a sampled analysis
-      // thumbnail. Earlier builds used slide.dataUrl here for video scenes, which caused
-      // the close-up flashes the user could see between clips.
-      els.reelPreview.style.backgroundImage = `url("${previousVisual}")`;
-      els.reelPreview.style.backgroundSize = 'cover';
-      els.reelPreview.style.backgroundPosition = 'center';
-      els.reelPreview.style.backgroundRepeat = 'no-repeat';
-      mediaElement.style.opacity = '0';
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        if (stillCurrent()) mediaElement.style.opacity = '1';
-      }));
-      setTimeout(() => {
-        if (stillCurrent() && state.reelPreviewIndex === normalizedIndex) clearReelPreviewBackdrop();
-      }, transitionMs + 90);
-    } else {
-      mediaElement.style.opacity = '1';
-      clearReelPreviewBackdrop();
-    }
-  };
+  const outgoingVideo = activeReelPreviewVideo();
+  const outgoingImage = els.reelPreviewImage && !els.reelPreviewImage.classList.contains('hidden') ? els.reelPreviewImage : null;
+  const outgoing = outgoingVideo || outgoingImage;
 
-  const slideVideoSource = slide.sourceType === 'video' ? (videoSourceById(slide.sourceVideoId) || primaryVideoSource()) : null;
-  if (slide.sourceType === 'video' && slideVideoSource?.objectUrl && els.reelPreviewVideo) {
-    const previewVideo = els.reelPreviewVideo;
-    try { previewVideo.pause(); } catch {}
-    if (previousVisual && animate && transitionMs > 0) {
-      els.reelPreview.style.backgroundImage = `url("${previousVisual}")`;
-      els.reelPreview.style.backgroundSize = 'cover';
-      els.reelPreview.style.backgroundPosition = 'center';
+  if (slide.sourceType === 'video') {
+    let incoming = null;
+    if (reelPreviewPrepared?.index === normalizedIndex && reelPreviewPrepared?.runId === runId) {
+      incoming = reelPreviewPrepared.video;
     }
-    previewVideo.style.opacity = previousVisual && animate && transitionMs > 0 ? '0' : '1';
-    els.reelPreviewImage.classList.add('hidden');
-    previewVideo.classList.remove('hidden');
-    if (previewVideo.src !== slideVideoSource.objectUrl) {
-      previewVideo.src = slideVideoSource.objectUrl;
-      try { previewVideo.load(); } catch {}
-    }
-    try {
-      if (previewVideo.readyState < 1) await waitForMediaEvent(previewVideo, 'loadedmetadata');
-      if (!stillCurrent()) return false;
-      // Wait for the requested moment to be decoded BEFORE revealing or starting the
-      // scene. This prevents the momentary wrong/old frame that looked like a jump.
-      await seekVideoRobust(previewVideo, Math.max(0, Number(slide.videoStart || 0)));
-      if (!stillCurrent()) return false;
-      stageTransition(previewVideo);
-      if (animate) await previewVideo.play().catch(() => {});
-      else previewVideo.pause();
-      return true;
-    } catch (error) {
-      console.info('Reel preview seek failed; showing the source without a sampled-frame fallback', error);
-      if (!stillCurrent()) return false;
-      clearReelPreviewBackdrop();
-      previewVideo.style.opacity = '1';
-      if (animate) previewVideo.play().catch(() => {});
-      return true;
-    }
+    if (!incoming) incoming = await preparePreviewVideoSlide(normalizedIndex, runId);
+    if (!incoming || !stillCurrent()) return false;
+
+    incoming.dataset.previewActive = '1';
+    try { await incoming.play(); } catch {}
+    if (!stillCurrent()) return false;
+
+    const ok = await crossfadePreviewLayers(incoming, outgoing && outgoing !== incoming ? outgoing : null, animate ? transitionMs : 0, runId);
+    if (!ok) return false;
+
+    reelPreviewVideos().forEach((video) => {
+      if (video === incoming) return;
+      delete video.dataset.previewActive;
+      hidePreviewLayer(video);
+    });
+    incoming.dataset.previewActive = '1';
+    incoming.style.opacity = '1';
+    incoming.classList.remove('hidden');
+    if (els.reelPreviewImage) els.reelPreviewImage.classList.add('hidden');
+    reelPreviewPrepared = null;
+    clearReelPreviewBackdrop();
+    return true;
   }
 
-  if (els.reelPreviewVideo) {
-    try { els.reelPreviewVideo.pause(); } catch {}
-    els.reelPreviewVideo.classList.add('hidden');
-    els.reelPreviewVideo.style.opacity = '1';
+  const image = els.reelPreviewImage;
+  const previousVisual = outgoingImage === image ? captureReelPreviewVisual() : '';
+  if (outgoingImage === image && previousVisual && animate && transitionMs > 0) {
+    els.reelPreview.style.backgroundImage = `url("${previousVisual}")`;
+    els.reelPreview.style.backgroundSize = 'cover';
+    els.reelPreview.style.backgroundPosition = 'center';
   }
-  els.reelPreviewImage.classList.remove('hidden');
-  els.reelPreviewImage.classList.remove('scene-enter');
+
+  image.classList.remove('scene-enter');
   const previewMotion = previewMotionTransforms(slide.motionType);
-  els.reelPreviewImage.style.setProperty('--reel-start-transform', previewMotion.start);
-  els.reelPreviewImage.style.setProperty('--reel-end-transform', previewMotion.end);
-  els.reelPreviewImage.style.setProperty('--reel-duration', `${Math.max(1200, slide.duration)}ms`);
-  els.reelPreviewImage.src = slide.dataUrl;
-  if (els.reelPreviewImage.decode) await els.reelPreviewImage.decode().catch(() => {});
+  image.style.setProperty('--reel-start-transform', previewMotion.start);
+  image.style.setProperty('--reel-end-transform', previewMotion.end);
+  image.style.setProperty('--reel-duration', `${Math.max(1200, slide.duration)}ms`);
+  if (image.src !== slide.dataUrl) image.src = slide.dataUrl;
+  if (image.decode) await image.decode().catch(() => {});
   if (!stillCurrent()) return false;
-  stageTransition(els.reelPreviewImage);
-  if (animate) requestAnimationFrame(() => els.reelPreviewImage.classList.add('scene-enter'));
+
+  image.classList.remove('hidden');
+  image.style.zIndex = '3';
+  image.style.opacity = outgoingVideo ? '0' : (previousVisual && animate && transitionMs > 0 ? '0' : '1');
+
+  if (outgoingVideo) {
+    await crossfadePreviewLayers(image, outgoingVideo, animate ? transitionMs : 0, runId);
+  } else if (previousVisual && animate && transitionMs > 0) {
+    image.style.transitionProperty = 'opacity';
+    image.style.transitionTimingFunction = 'linear';
+    image.style.transitionDuration = `${transitionMs}ms`;
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    image.style.opacity = '1';
+    await new Promise((resolve) => setTimeout(resolve, transitionMs + 30));
+  } else {
+    image.style.opacity = '1';
+  }
+
+  reelPreviewVideos().forEach((video) => {
+    delete video.dataset.previewActive;
+    hidePreviewLayer(video);
+  });
+  clearPreparedPreviewVideo();
+  clearReelPreviewBackdrop();
+  if (animate) requestAnimationFrame(() => image.classList.add('scene-enter'));
   return true;
 }
 
@@ -2807,6 +2932,7 @@ function playReelPreview() {
     stopReelPreview();
     return;
   }
+
   const runId = Number(state.reelPreviewRunId || 0) + 1;
   state.reelPreviewRunId = runId;
   els.playReelBtn.textContent = '■ Stop preview';
@@ -2818,7 +2944,14 @@ function playReelPreview() {
     const slide = slides[index];
     const shown = await showReelSlide(index, true, runId);
     if (!shown || Number(state.reelPreviewRunId || 0) !== runId) return;
-    const visibleDuration = Math.max(500, Number(slide?.duration || 1500));
+
+    const visibleDuration = Math.max(700, Number(slide?.duration || 1500));
+    const nextIndex = index + 1;
+
+    if (nextIndex < slides.length && slides[nextIndex]?.sourceType === 'video') {
+      preparePreviewVideoSlide(nextIndex, runId).catch((error) => console.info('Next Reel clip could not be preloaded', error));
+    }
+
     index += 1;
     if (index >= slides.length) {
       state.reelPreviewTimer = setTimeout(async () => {
@@ -2828,9 +2961,11 @@ function playReelPreview() {
       }, visibleDuration);
       return;
     }
-    // The timer begins only after the new video moment has actually been decoded and
-    // shown. On iPhone this is critical; otherwise seek time steals most of the clip.
-    state.reelPreviewTimer = setTimeout(advance, visibleDuration);
+
+    const requestedTransition = Math.max(0, Number(editingIntentFromDescription().transitionMs || 0));
+    const overlapLead = Math.min(requestedTransition, Math.max(0, visibleDuration * .28), 650);
+    const holdMs = Math.max(500, visibleDuration - overlapLead);
+    state.reelPreviewTimer = setTimeout(advance, holdMs);
   };
 
   advance();
@@ -3024,6 +3159,17 @@ async function exportStoryVideo({returnBlob = false} = {}) {
   }
 }
 
+function drawPreparedReelMedia(ctx, slide, media, progress, width, height, alpha = 1) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  if (slide.sourceType === 'video') {
+    drawCoverImage(ctx, media, width, height, 1.0, .42);
+  } else {
+    drawAnimatedCoverImage(ctx, media, width, height, slide?.motionType || 'zoom_in_soft', clamp(progress, 0, 1));
+  }
+  ctx.restore();
+}
+
 async function exportReelVideo({returnBlob = false} = {}) {
   const slides = state.readyAssets.reelSlides || [];
   if (!slides.length) {
@@ -3039,15 +3185,43 @@ async function exportReelVideo({returnBlob = false} = {}) {
     showAuthNotice('Video export is not supported by this browser yet.');
     return null;
   }
+
   els.downloadReelBtn.disabled = true;
   els.downloadReelBtn.textContent = 'Rendering Reel…';
   els.reelReadyBadge.textContent = 'Rendering';
+
+  const preparedVideos = [];
   try {
     const canvas = document.createElement('canvas');
     canvas.width = 720;
     canvas.height = 1280;
     const ctx = canvas.getContext('2d');
     const fps = 30;
+
+    // Prepare every selected video start before MediaRecorder begins. This prevents
+    // iPhone seek/decode time from being recorded as a frozen frame between clips.
+    const loadedImages = await Promise.all(slides.map((slide) => slide.sourceType === 'video' ? null : loadImageFromDataUrl(slide.dataUrl)));
+    for (let i = 0; i < slides.length; i += 1) {
+      const slide = slides[i];
+      if (slide.sourceType !== 'video') continue;
+      const source = videoSourceById(slide.sourceVideoId) || primaryVideoSource();
+      if (!source) continue;
+      const video = await createSourceVideoElement(source);
+      await seekVideoElement(video, Math.max(0, Number(slide.videoStart || 0)));
+      await ensureVideoFrameDecoded(video).catch(() => {});
+      try { video.pause(); } catch {}
+      preparedVideos[i] = video;
+    }
+
+    const mediaFor = (index) => slides[index]?.sourceType === 'video' ? preparedVideos[index] : loadedImages[index];
+
+    if (slides[0]) {
+      ctx.fillStyle = '#111';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      const firstMedia = mediaFor(0);
+      if (firstMedia) drawPreparedReelMedia(ctx, slides[0], firstMedia, 0, canvas.width, canvas.height, 1);
+    }
+
     const stream = canvas.captureStream(fps);
     const recorder = new MediaRecorder(stream, {mimeType, videoBitsPerSecond: 5_000_000});
     const chunks = [];
@@ -3055,55 +3229,88 @@ async function exportReelVideo({returnBlob = false} = {}) {
     const stopped = new Promise((resolve) => recorder.addEventListener('stop', resolve, {once: true}));
     recorder.start(500);
 
-    const loaded = await Promise.all(slides.map((slide) => slide.sourceType === 'video' ? null : loadImageFromDataUrl(slide.dataUrl)));
-    const videoIds = [...new Set(slides.filter((slide) => slide.sourceType === 'video').map((slide) => slide.sourceVideoId).filter(Boolean))];
-    const sourceVideos = {};
-    for (const videoId of videoIds) {
-      const source = videoSourceById(videoId) || primaryVideoSource();
-      if (source) sourceVideos[videoId] = await createSourceVideoElement(source);
-    }
-    let previousFrame = null;
-    const transitionMs = Math.max(0, Number(editingIntentFromDescription().transitionMs || 0));
-    for (let i = 0; i < slides.length; i += 1) {
-      const slide = slides[i];
-      const sceneTransitionMs = i === 0 ? 0 : transitionMs;
-      if (slide.sourceType === 'video') {
-        const sourceVideo = sourceVideos[slide.sourceVideoId] || sourceVideos[videoIds[0]] || null;
-        if (sourceVideo) {
-          await renderOriginalVideoSegment(ctx, sourceVideo, slide, canvas.width, canvas.height, previousFrame, sceneTransitionMs);
-          previousFrame = snapshotCanvas(canvas);
-          continue;
-        }
-      }
-      const img = loaded[i] || await loadImageFromDataUrl(slide.dataUrl);
-      const start = performance.now();
+    const requestedTransition = Math.max(0, Number(editingIntentFromDescription().transitionMs || 0));
+    const consumedIn = new Array(slides.length).fill(0);
+
+    const renderDuration = async (durationMs, drawFrame) => {
+      const safeDuration = Math.max(0, Number(durationMs || 0));
+      if (safeDuration <= 1) return;
+      const started = performance.now();
       await new Promise((resolve) => {
         const tick = (now) => {
-          const elapsed = now - start;
-          const progress = Math.min(1, elapsed / slide.duration);
-          const blend = crossfadeBlend(elapsed, sceneTransitionMs, Boolean(previousFrame));
-          beginCanvasScene(ctx, canvas.width, canvas.height, previousFrame, blend);
-          drawReelCanvasFrame(ctx, img, slide, progress, canvas.width, canvas.height, blend);
-          if (progress < 1) requestAnimationFrame(tick);
+          const elapsed = Math.min(safeDuration, now - started);
+          drawFrame(elapsed, safeDuration);
+          if (elapsed < safeDuration) requestAnimationFrame(tick);
           else resolve();
         };
         requestAnimationFrame(tick);
       });
-      previousFrame = snapshotCanvas(canvas);
+    };
+
+    for (let i = 0; i < slides.length; i += 1) {
+      const slide = slides[i];
+      const media = mediaFor(i);
+      if (!media) continue;
+
+      const slideDuration = Math.max(350, Number(slide.duration || 1500));
+      const incomingConsumed = Math.min(slideDuration * .45, Number(consumedIn[i] || 0));
+
+      if (slide.sourceType === 'video' && media.paused) {
+        await media.play().catch(() => {});
+      }
+
+      const nextSlide = slides[i + 1] || null;
+      const nextMedia = nextSlide ? mediaFor(i + 1) : null;
+      let transitionOut = 0;
+      if (nextSlide && nextMedia && requestedTransition > 0) {
+        transitionOut = Math.min(
+          requestedTransition,
+          Math.max(0, slideDuration - incomingConsumed - 250),
+          Math.max(0, Number(nextSlide.duration || 1500) * .30),
+          650
+        );
+      }
+
+      const bodyMs = Math.max(0, slideDuration - incomingConsumed - transitionOut);
+      await renderDuration(bodyMs, (elapsed) => {
+        const progress = (incomingConsumed + elapsed) / slideDuration;
+        ctx.fillStyle = '#111';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        drawPreparedReelMedia(ctx, slide, media, progress, canvas.width, canvas.height, 1);
+      });
+
+      if (transitionOut > 0 && nextSlide && nextMedia) {
+        if (nextSlide.sourceType === 'video') {
+          try { await nextMedia.play(); } catch {}
+        }
+
+        await renderDuration(transitionOut, (elapsed, total) => {
+          const blend = crossfadeBlend(elapsed, total, true);
+          const currentProgress = (incomingConsumed + bodyMs + elapsed) / slideDuration;
+          const nextProgress = elapsed / Math.max(350, Number(nextSlide.duration || 1500));
+          ctx.fillStyle = '#111';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          drawPreparedReelMedia(ctx, slide, media, currentProgress, canvas.width, canvas.height, 1);
+          drawPreparedReelMedia(ctx, nextSlide, nextMedia, nextProgress, canvas.width, canvas.height, blend);
+        });
+        consumedIn[i + 1] = transitionOut;
+      }
+
+      if (slide.sourceType === 'video') {
+        try { media.pause(); } catch {}
+      }
     }
-    Object.values(sourceVideos).forEach((sourceVideo) => {
-      try { sourceVideo.pause(); } catch {}
-      sourceVideo.removeAttribute('src');
-      sourceVideo.load?.();
-    });
+
     recorder.stop();
     await stopped;
     stream.getTracks().forEach((track) => track.stop());
+
     const blob = new Blob(chunks, {type: mimeType});
     state.readyAssets.reelBlob = blob;
     state.readyAssets.reelMime = mimeType;
     state.readyAssets.packageBlob = null;
     els.reelReadyBadge.textContent = 'Ready';
+
     if (!returnBlob) {
       els.reelReadyBadge.textContent = 'Ready to save';
       els.downloadReelBtn.textContent = 'Save / Share Reel';
@@ -3115,6 +3322,11 @@ async function exportReelVideo({returnBlob = false} = {}) {
     showAuthNotice('The Reel preview is ready, but video export failed on this device.');
     return null;
   } finally {
+    preparedVideos.filter(Boolean).forEach((video) => {
+      try { video.pause(); } catch {}
+      video.removeAttribute('src');
+      video.load?.();
+    });
     els.downloadReelBtn.disabled = false;
     if (state.readyAssets.reelBlob) {
       els.downloadReelBtn.textContent = 'Save / Share Reel';

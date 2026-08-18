@@ -1248,3 +1248,21 @@ label > span { display: block; margin-bottom: 7px; color: #43564f; font-size: 12
   color: #345e73;
   border-color: rgba(52,94,115,.16);
 }
+
+
+/* v1.9.4 — true motion-to-motion Reel transitions */
+.reel-preview > img,
+.reel-preview > video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.reel-preview > img,
+.reel-preview > video {
+  transition-property: opacity;
+  transition-timing-function: linear;
+}
+.reel-progress { z-index: 8; pointer-events: none; }
+#reelPreviewVideoB { pointer-events: none; }
