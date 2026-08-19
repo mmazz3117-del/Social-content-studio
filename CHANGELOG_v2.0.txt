@@ -1,0 +1,22 @@
+SOCIAL MEDIA PAL v2.0 — CONTENT DIRECTOR
+
+MAJOR COURSE CHANGE
+- Removed automatic Reel/Story rendering and browser-based video editing.
+- Rebuilt the app around planning, directing, shooting, assembling and publishing content.
+
+NEW
+- Reel / Short Video, Photo Post, Story and Full Content Plan formats.
+- Business and General/Test modes retained.
+- Director-style shot plans with exact shot type, framing, orientation, camera movement, timing and on-screen text.
+- "Plan a new shoot" and "Work with what I have" workflows.
+- Optional media upload for analysis only; original video is never rendered or edited.
+- Shoot Mode walks through one shot at a time with progress, done checklist and a built-in shot timer.
+- Assembly roadmap explains how to put the captured material together.
+- Publish Kit organizes caption, shorter caption, cover text, Story copy, CTA and hashtags.
+- Plan refinements: Another idea, More detailed, Simplify, More fun.
+- Recent Plans save the creative roadmap for later review.
+- Tell Pal voice brief and microphone modes retained.
+
+DEPLOYMENT
+- Frontend-only update. Replace index.html, app.js and styles.css in GitHub Pages.
+- No Firebase Functions redeploy is required for v2.0.

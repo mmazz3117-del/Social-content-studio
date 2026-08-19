@@ -1,14 +1,13 @@
-# Social Media Pal v1.9.5 — Business / General Test Mode
+# Social Media Pal v2.0 — Content Director
 
-Frontend-only GitHub Pages build. No Firebase function deployment is required for this release.
+Social Media Pal is now a mobile-first content planning and directing companion.
 
-v1.9.5 adds a permanent Content Mode switch at the top of Create:
+Instead of trying to automatically edit videos in the browser, Pal creates the concept, shot list, camera directions, timing, assembly roadmap, on-screen text and copy-ready publish kit. Optional uploaded photos/videos are used for visual analysis only.
 
-- Business — uses the saved business name, location, brand voice and default hashtags/details.
-- General / Test — keeps the saved business profile untouched but excludes it from the project request and finished graphics. Pal is explicitly told not to mention the store, Wayland Square, Providence, shopping, local-business hashtags or store CTAs unless the user puts those details into the current brief.
+## GitHub Pages deployment
+Replace the existing frontend files with the contents of this package. The key changed files are:
+- index.html
+- app.js
+- styles.css
 
-General / Test mode also uses a neutral context-aware tone, swaps in non-store quick-start prompts, removes business/location footers from generated Post/Story assets, and is saved with Recent Projects so a test project reopens in the same mode.
-
-The v1.9.4 motion-to-motion Reel transition work remains included.
-
-Upload the contents of this folder to the root of the GitHub Pages repository, replacing files with matching names.
+No Firebase Functions deployment is required for this version. It continues using the existing `generateSocialPackage` callable function in `us-central1`.

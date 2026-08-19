@@ -1,12 +1,7 @@
-Social Media Pal v1.9.5 QA
-
-PASS — app.js JavaScript syntax check (node --check)
-PASS — no duplicate HTML ids
-PASS — every getElementById reference has a matching HTML element
-PASS — CSS opening/closing brace counts match
-PASS — v1.9.5 version badge present
-PASS — Business and General/Test mode controls present
-PASS — General/Test generation guard and mode-specific profile present
-PASS — General/Test local graphics suppress saved business/footer information
-PASS — Content Mode saved/restored with projects
-PASS — package is root-flat for GitHub Pages
+Social Media Pal v2.0 QA
+- JavaScript syntax: PASS (node --check)
+- Duplicate HTML IDs: PASS
+- JavaScript DOM ID references: PASS
+- Package structure: root-flat
+- Firebase callable preserved: generateSocialPackage / us-central1
+- Automatic Reel rendering/export code: REMOVED
