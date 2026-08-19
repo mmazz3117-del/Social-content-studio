@@ -19,6 +19,7 @@ const MAX_RECENT_PROJECTS = 8;
 const MEDIA_DB_NAME = 'socialStudioMediaV1';
 const MEDIA_DB_STORE = 'videos';
 const MIC_MODE_STORAGE_KEY = 'socialMediaPalMicModeV1';
+const CONTENT_MODE_STORAGE_KEY = 'socialMediaPalContentModeV1';
 
 const REFINE_INSTRUCTIONS = {
   shorter: 'Create a clearly shorter version, not a light edit. Reduce the primary caption and Story copy by roughly 35–50% while preserving the important facts. Use tighter sentences and remove repetition.',
@@ -53,6 +54,7 @@ const state = {
   mediaBusy: false,
   voiceListening: false,
   lastWorkingMicMode: '',
+  contentMode: 'business',
   reelEditPrefs: {clipScale: 1, transitionMs: 320, preferVideoBoost: false, variant: 0, sourceScales: {}, feedback: ''},
 };
 
@@ -63,6 +65,9 @@ const els = {
   photoGrid: document.getElementById('photoGrid'),
   mediaSummary: document.getElementById('mediaSummary'),
   description: document.getElementById('description'),
+  contentModeBtns: [...document.querySelectorAll('[data-content-mode]')],
+  contentModeStatus: document.getElementById('contentModeStatus'),
+  contentModeHelp: document.getElementById('contentModeHelp'),
   tellPalBtn: document.getElementById('tellPalBtn'),
   voiceStatus: document.getElementById('voiceStatus'),
   micMode: document.getElementById('micMode'),
@@ -184,6 +189,13 @@ const defaultProfile = {
   businessLocation: 'Wayland Square, Providence, Rhode Island',
   brandVoice: 'Warm, polished, knowledgeable, local, inviting, and never overly salesy. Keep the writing natural rather than generic or overhyped.',
   brandDefaults: 'Use Ocean State Spice & Tea Merchants by name when useful. Preferred local tags include #OceanStateSpiceAndTea #WaylandSquare #ProvidenceRI #ShopLocalRI. Avoid cluttering posts with too many hashtags.',
+};
+
+const generalModeProfile = {
+  businessName: '',
+  businessLocation: '',
+  brandVoice: 'Natural, polished, context-appropriate and human. Match the subject and mood shown in the supplied media and the user’s brief. Do not force a commercial or promotional angle.',
+  brandDefaults: 'GENERAL / TEST MODE. This content is not automatically connected to a store or business. Do not mention Ocean State Spice & Tea Merchants, Wayland Square, Providence, shopping, visiting a store, local business hashtags, products for sale, or any saved business information unless the user explicitly includes that information in this project brief.',
 };
 
 let auth;
@@ -664,6 +676,103 @@ function getProfile() {
     brandDefaults: els.brandDefaults.value.trim(),
   };
 }
+
+function isGeneralMode() {
+  return state.contentMode === 'general';
+}
+
+function profileForCurrentMode() {
+  return isGeneralMode() ? {...generalModeProfile} : getProfile();
+}
+
+function descriptionForGeneration() {
+  const brief = els.description.value.trim();
+  if (!isGeneralMode()) return brief;
+  const modeRule = 'GENERAL / TEST MODE: Treat this as independent content unrelated to the saved business profile. Do not mention Ocean State Spice & Tea Merchants, Wayland Square, Providence, a store, shopping, local business hashtags, or a visit/purchase call-to-action unless I explicitly mention those things in this project brief. Base the creative concept only on this project media and my description.';
+  return brief ? `${modeRule}
+
+PROJECT BRIEF: ${brief}` : modeRule;
+}
+
+function clearGeneratedOutputForModeSwitch() {
+  state.result = null;
+  state.readyAssets = {feed: '', story: '', storyVideoBlob: null, storyMime: '', reelSlides: [], reelBlob: null, reelMime: '', packageBlob: null};
+  state.approvedAssets = {feed: false, story: false, reel: false};
+  state.assetStyleIndex = 0;
+  state.reelEditPrefs = freshReelEditPrefs();
+  stopReelPreview();
+  clearEditedPreview();
+  els.workerAssets?.classList.add('hidden');
+  els.resultsState?.classList.add('hidden');
+  els.emptyState?.classList.remove('hidden');
+  if (els.feedAssetPreview) els.feedAssetPreview.removeAttribute('src');
+  if (els.storyAssetPreview) els.storyAssetPreview.removeAttribute('src');
+  [els.storyAssetPreviewVideo, els.reelPreviewVideo, els.reelPreviewVideoB].filter(Boolean).forEach((video) => {
+    try { video.pause(); } catch {}
+    video.removeAttribute('src');
+    video.load?.();
+  });
+  if (els.reelPreviewImage) els.reelPreviewImage.removeAttribute('src');
+  if (els.reelSceneSummary) els.reelSceneSummary.innerHTML = '';
+  if (els.reelFeedbackText) els.reelFeedbackText.value = '';
+  if (els.reelFeedbackStatus) els.reelFeedbackStatus.textContent = '';
+  refreshRefineButtons();
+}
+
+function renderContentMode() {
+  const general = isGeneralMode();
+  els.contentModeBtns?.forEach((button) => {
+    const active = button.dataset.contentMode === state.contentMode;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+  if (els.contentModeStatus) {
+    els.contentModeStatus.textContent = general ? 'General / Test active' : 'Business profile active';
+    els.contentModeStatus.classList.toggle('test-mode', general);
+  }
+  if (els.contentModeHelp) {
+    els.contentModeHelp.textContent = general
+      ? 'General / Test mode is on. Pal will use only this project’s media and brief — your saved store profile stays untouched.'
+      : 'Business mode is on. Pal will use your saved business profile when it helps the post.';
+  }
+  if (els.description) {
+    els.description.placeholder = general
+      ? 'Example: These are clips from a weekend hike — make it cinematic, relaxed and natural.'
+      : 'Example: New summer teas arrived — make this feel fun, summery and inviting.';
+  }
+  els.briefStarterBtns?.forEach((button) => {
+    const mode = button.dataset.starterMode || 'all';
+    button.classList.toggle('hidden', mode !== 'all' && mode !== state.contentMode);
+  });
+  document.body.dataset.contentMode = state.contentMode;
+}
+
+function setContentMode(mode, {silent = false, keepResult = false} = {}) {
+  const next = mode === 'general' ? 'general' : 'business';
+  if (next === state.contentMode) {
+    renderContentMode();
+    return;
+  }
+  if (!keepResult && state.result) clearGeneratedOutputForModeSwitch();
+  state.contentMode = next;
+  if (els.tone) {
+    if (next === 'general' && els.tone.value === 'warm, polished, local, and inviting') els.tone.value = 'natural, polished, and context-appropriate';
+    if (next === 'business' && els.tone.value === 'natural, polished, and context-appropriate') els.tone.value = 'warm, polished, local, and inviting';
+  }
+  try { localStorage.setItem(CONTENT_MODE_STORAGE_KEY, next); } catch {}
+  renderContentMode();
+  if (!silent) showToast(next === 'general' ? 'General / Test mode on — store branding is off' : 'Business mode on — saved profile is active');
+}
+
+function loadContentMode() {
+  let saved = 'business';
+  try { saved = localStorage.getItem(CONTENT_MODE_STORAGE_KEY) || 'business'; } catch {}
+  state.contentMode = saved === 'general' ? 'general' : 'business';
+  if (state.contentMode === 'general' && els.tone?.value === 'warm, polished, local, and inviting') els.tone.value = 'natural, polished, and context-appropriate';
+  renderContentMode();
+}
+
+els.contentModeBtns?.forEach((button) => button.addEventListener('click', () => setContentMode(button.dataset.contentMode)));
 
 function initFirebase() {
   try {
@@ -1423,7 +1532,8 @@ function buildPayload(action = 'generate', refineInstruction = '', extras = {}) 
   return {
     action,
     oneTap: Boolean(extras.oneTap),
-    description: els.description.value.trim(),
+    description: descriptionForGeneration(),
+    contentMode: state.contentMode,
     contentType: els.contentType.value,
     tone: els.tone.value,
     options: {
@@ -1433,7 +1543,7 @@ function buildPayload(action = 'generate', refineInstruction = '', extras = {}) 
       hashtags: els.includeHashtags.checked,
       reelMode: els.reelMode.value,
     },
-    profile: getProfile(),
+    profile: profileForCurrentMode(),
     images: state.photos.map((photo) => photo.dataUrl),
     mediaManifest: state.photos.map((photo, index) => ({
       imageNumber: index + 1,
@@ -1962,10 +2072,11 @@ async function createPostGraphic(dataUrl) {
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  const brand = getProfile().businessName || 'Ocean State Spice & Tea Merchants';
-  const location = getProfile().businessLocation || '';
-  const text = state.result?.postOverlayText || state.result?.headline || 'New in the shop';
-  const subText = location ? `${brand} • ${location}` : brand;
+  const profile = profileForCurrentMode();
+  const brand = isGeneralMode() ? '' : (profile.businessName || 'Ocean State Spice & Tea Merchants');
+  const location = isGeneralMode() ? '' : (profile.businessLocation || '');
+  const text = state.result?.postOverlayText || state.result?.headline || (isGeneralMode() ? 'A moment worth sharing' : 'New in the shop');
+  const subText = brand ? (location ? `${brand} • ${location}` : brand) : '';
   const left = 70;
   const maxWidth = canvas.width - left * 2;
 
@@ -2250,10 +2361,10 @@ async function createStoryGraphic(dataUrl) {
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  const profile = getProfile();
-  const overlay = state.result?.storyOverlayText || state.result?.postOverlayText || state.result?.headline || 'In store now';
-  const cta = state.result?.cta || 'Stop in and take a look.';
-  const brand = profile.businessName || 'Ocean State Spice & Tea Merchants';
+  const profile = profileForCurrentMode();
+  const overlay = state.result?.storyOverlayText || state.result?.postOverlayText || state.result?.headline || (isGeneralMode() ? 'A moment worth sharing' : 'In store now');
+  const cta = state.result?.cta || (isGeneralMode() ? '' : 'Stop in and take a look.');
+  const brand = isGeneralMode() ? '' : (profile.businessName || 'Ocean State Spice & Tea Merchants');
   const left = 72;
   const maxWidth = canvas.width - 144;
   const topY = canvas.height * .64;
@@ -2266,9 +2377,11 @@ async function createStoryGraphic(dataUrl) {
   ctaLines.forEach((line, i) => ctx.fillText(line, left, ctaY + i * 42));
 
   const footerY = canvas.height - 102;
-  ctx.font = '700 25px Inter, Arial, sans-serif';
-  ctx.fillStyle = 'rgba(255,255,255,.88)';
-  ctx.fillText(brand, left, footerY);
+  if (brand) {
+    ctx.font = '700 25px Inter, Arial, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,.88)';
+    ctx.fillText(brand, left, footerY);
+  }
   return canvas.toDataURL('image/jpeg', .95);
 }
 
@@ -3070,8 +3183,8 @@ async function renderOriginalVideoSegment(ctx, video, slide, width, height, prev
 function drawStoryVideoOverlay(ctx, width, height) {
   const overlay = state.result?.storyOverlayText || state.result?.postOverlayText || state.result?.headline || '';
   const cta = state.result?.cta || '';
-  const profile = getProfile();
-  const brand = profile.businessName || 'Social Media Pal';
+  const profile = profileForCurrentMode();
+  const brand = isGeneralMode() ? '' : (profile.businessName || 'Social Media Pal');
   const gradient = ctx.createLinearGradient(0, height * .45, 0, height);
   gradient.addColorStop(0, 'rgba(0,0,0,0)');
   gradient.addColorStop(1, 'rgba(0,0,0,.70)');
@@ -3086,9 +3199,11 @@ function drawStoryVideoOverlay(ctx, width, height) {
   const ctaLines = wrapText(ctx, cta, maxWidth).slice(0, 3);
   const ctaY = topY + block.height + 24;
   ctaLines.forEach((line, i) => ctx.fillText(line, left, ctaY + i * 29));
-  ctx.font = '700 17px Inter, Arial, sans-serif';
-  ctx.fillStyle = 'rgba(255,255,255,.9)';
-  ctx.fillText(brand, left, height - 58);
+  if (brand) {
+    ctx.font = '700 17px Inter, Arial, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,.9)';
+    ctx.fillText(brand, left, height - 58);
+  }
 }
 
 async function exportStoryVideo({returnBlob = false} = {}) {
@@ -3695,6 +3810,7 @@ async function currentProjectSnapshot() {
     updatedAt: Date.now(),
     headline: state.result?.headline || els.description.value.trim() || 'Untitled project',
     description: els.description.value,
+    contentMode: state.contentMode,
     contentType: els.contentType.value,
     tone: els.tone.value,
     options: {
@@ -3774,6 +3890,7 @@ function renderRecentProjects() {
     const projectVideoCount = Array.isArray(project.videoSources) && project.videoSources.length ? project.videoSources.length : (project.videoSource ? 1 : 0);
     if (projectVideoCount) mediaBits.push(`${projectVideoCount} video${projectVideoCount === 1 ? '' : 's'}${frameCount ? ` • ${frameCount} analysis frame${frameCount === 1 ? '' : 's'}` : ''}`);
     if (!mediaBits.length) mediaBits.push('saved content');
+    mediaBits.unshift(project.contentMode === 'general' ? 'General/Test' : 'Business');
     return `<div class="recent-project">
       <button class="recent-project-open" type="button" data-project-id="${project.id}">
         <div class="recent-project-icon">${(Array.isArray(project.videoSources) && project.videoSources.length) || project.videoSource ? '🎞️' : '📷'}</div>
@@ -3812,6 +3929,9 @@ async function applyProject(project) {
   state.videoSources = await hydrateVideoSources(sourceList);
   syncPrimaryVideoSource();
   state.result = project.result || null;
+  state.contentMode = project.contentMode === 'general' ? 'general' : 'business';
+  try { localStorage.setItem(CONTENT_MODE_STORAGE_KEY, state.contentMode); } catch {}
+  renderContentMode();
   state.reelEditPrefs = {...freshReelEditPrefs(), ...(project.reelEditPrefs || {}), sourceScales: {...(project.reelEditPrefs?.sourceScales || {})}};
   if (els.reelFeedbackText) els.reelFeedbackText.value = state.reelEditPrefs.feedback || '';
   state.readyAssets = {feed: '', story: '', storyVideoBlob: null, storyMime: '', reelSlides: [], reelBlob: null, reelMime: '', packageBlob: null};
@@ -3855,6 +3975,7 @@ els.clearProjectsBtn.addEventListener('click', async () => {
 });
 
 loadProfile();
+loadContentMode();
 loadMicPreference();
 loadRecentProjects();
 updateReelModeVisibility();

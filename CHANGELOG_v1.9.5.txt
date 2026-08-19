@@ -1,0 +1,22 @@
+Social Media Pal v1.9.5 — Business / General Test Mode
+
+NEW
+• Added a prominent Content Mode selector on Create.
+• Business mode uses the saved business profile as before.
+• General / Test mode isolates experimental content from the saved store profile.
+• General / Test mode sends a neutral profile plus an explicit no-store/no-local-business instruction with the project brief.
+• General / Test mode removes business/location footers from locally created Post and Story graphics and moving Story overlays.
+• General / Test mode uses a neutral “Natural / Context-Aware” tone by default.
+• Quick-start prompts change with the selected mode: store-oriented ideas in Business mode; story/moment ideas in General/Test mode.
+• The selected Content Mode is remembered on the device.
+• Recent Projects save and restore their Content Mode and show Business or General/Test in project metadata.
+• Switching modes clears already-generated outputs but keeps uploaded media and the written brief, so the package can be rebuilt cleanly in the new mode.
+
+KEPT FROM v1.9.4
+• Motion-to-motion Reel transition system.
+• Multi-video editing and Reel feedback controls.
+• Tell Pal microphone controls.
+• Preserve Reality media handling.
+
+DEPLOYMENT
+• Frontend only. No Firebase deployment required.

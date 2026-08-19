@@ -1,8 +1,12 @@
-Social Media Pal v1.9.4 motion-transition QA
+Social Media Pal v1.9.5 QA
 
-PASS — app.js parses with Node syntax check.
-PASS — index.html contains unique element IDs.
-PASS — index.html includes both Reel preview video layers.
-PASS — app.js references reelPreviewVideoB.
-PASS — Reel export target remains 30 fps.
-PASS — package is root-flat for GitHub Pages upload.
+PASS — app.js JavaScript syntax check (node --check)
+PASS — no duplicate HTML ids
+PASS — every getElementById reference has a matching HTML element
+PASS — CSS opening/closing brace counts match
+PASS — v1.9.5 version badge present
+PASS — Business and General/Test mode controls present
+PASS — General/Test generation guard and mode-specific profile present
+PASS — General/Test local graphics suppress saved business/footer information
+PASS — Content Mode saved/restored with projects
+PASS — package is root-flat for GitHub Pages

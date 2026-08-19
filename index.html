@@ -20,7 +20,7 @@
       <div class="topbar-inner">
         <div class="brand-lockup">
           <div class="brand-mark">SM</div>
-          <div class="title-row"><h1>Social Media Pal</h1><span class="version-tag">v1.9.4</span></div>
+          <div class="title-row"><h1>Social Media Pal</h1><span class="version-tag">v1.9.5</span></div>
         </div>
         <div class="topbar-actions">
           <span id="apiStatus" class="status-pill demo">Sign in to connect</span>
@@ -48,6 +48,29 @@
           <div><span>2</span><strong>Give direction</strong></div><i>→</i>
           <div><span>3</span><strong>Pal builds it</strong></div>
         </div>
+
+        <section class="content-mode-card" aria-labelledby="contentModeTitle">
+          <div class="content-mode-heading">
+            <div>
+              <span class="view-kicker">CONTENT MODE</span>
+              <h3 id="contentModeTitle">What are we creating for?</h3>
+            </div>
+            <span id="contentModeStatus" class="content-mode-status">Business profile active</span>
+          </div>
+          <div class="content-mode-options" role="group" aria-label="Choose content mode">
+            <button class="content-mode-option active" data-content-mode="business" type="button" aria-pressed="true">
+              <span class="content-mode-icon">🏪</span>
+              <span><strong>Business</strong><small>Uses your saved store profile, location, voice and brand defaults.</small></span>
+              <span class="content-mode-check">✓</span>
+            </button>
+            <button class="content-mode-option" data-content-mode="general" type="button" aria-pressed="false">
+              <span class="content-mode-icon">✨</span>
+              <span><strong>General / Test</strong><small>Uses only this project’s media and brief — no store branding or local defaults.</small></span>
+              <span class="content-mode-check">✓</span>
+            </button>
+          </div>
+          <p id="contentModeHelp" class="content-mode-help">Business mode is on. Pal will use your saved business profile when it helps the post.</p>
+        </section>
 
         <section class="panel panel-upload" id="mediaPanel">
           <div class="panel-heading">
@@ -109,11 +132,13 @@
           </div>
           <div class="brief-starters" aria-label="Quick direction ideas">
             <span>Quick start:</span>
-            <button type="button" data-brief-starter="New arrivals — make this exciting, polished and local.">✨ New arrivals</button>
-            <button type="button" data-brief-starter="Feature this product and make people curious to stop in and see it.">🛍️ Product spotlight</button>
-            <button type="button" data-brief-starter="Create an inviting visual tour that makes the store feel worth visiting.">🏪 Store tour</button>
-            <button type="button" data-brief-starter="Turn this into a quick useful educational post that is easy to understand.">💡 Teach something</button>
-            <button type="button" data-brief-starter="Make this playful, warm and behind-the-scenes without feeling overly promotional.">🎉 Make it fun</button>
+            <button type="button" data-starter-mode="business" data-brief-starter="New arrivals — make this exciting, polished and local.">✨ New arrivals</button>
+            <button type="button" data-starter-mode="business" data-brief-starter="Feature this product and make people curious to stop in and see it.">🛍️ Product spotlight</button>
+            <button type="button" data-starter-mode="business" data-brief-starter="Create an inviting visual tour that makes the store feel worth visiting.">🏪 Store tour</button>
+            <button type="button" data-starter-mode="general" class="hidden" data-brief-starter="Turn these clips into a clear mini story with a beginning, middle and finish.">🎬 Tell a story</button>
+            <button type="button" data-starter-mode="general" class="hidden" data-brief-starter="Make this feel cinematic, natural and memorable without inventing anything that is not shown.">🌎 Capture the moment</button>
+            <button type="button" data-starter-mode="all" data-brief-starter="Turn this into a quick useful educational post that is easy to understand.">💡 Teach something</button>
+            <button type="button" data-starter-mode="all" data-brief-starter="Make this playful, warm and behind-the-scenes without feeling overly promotional.">🎉 Make it fun</button>
           </div>
 
           <details id="customizeDetails" class="customize-box">
@@ -135,7 +160,8 @@
                 <label>
                   <span>Tone</span>
                   <select id="tone">
-                    <option value="warm, polished, local, and inviting">Warm &amp; Inviting</option>
+                    <option value="natural, polished, and context-appropriate">Natural / Context-Aware</option>
+                    <option value="warm, polished, local, and inviting" selected>Warm &amp; Inviting</option>
                     <option value="fun, energetic, and playful">Fun &amp; Playful</option>
                     <option value="clean, elevated, and elegant">Elegant</option>
                     <option value="helpful, interesting, and educational">Educational</option>
@@ -418,7 +444,7 @@
   <dialog id="profileDialog" class="profile-dialog">
     <form method="dialog" class="dialog-card" id="profileForm">
       <div class="dialog-head"><div><span class="view-kicker">BRAND MEMORY</span><h2>Business profile</h2></div><button class="close-btn" value="cancel" aria-label="Close" type="submit">×</button></div>
-      <p>These details stay in this browser and are included with each generation.</p>
+      <p>These details stay in this browser and are used in <strong>Business</strong> mode. <strong>General / Test</strong> mode leaves them out.</p>
       <label><span>Business name</span><input id="businessName" value="Ocean State Spice & Tea Merchants" /></label>
       <label><span>Location</span><input id="businessLocation" value="Wayland Square, Providence, Rhode Island" /></label>
       <label><span>Brand voice</span><textarea id="brandVoice" rows="4">Warm, polished, knowledgeable, local, inviting, and never overly salesy. Keep the writing natural rather than generic or overhyped.</textarea></label>
